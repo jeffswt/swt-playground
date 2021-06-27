@@ -9,7 +9,7 @@ import socket
 import subprocess
 import sys
 import threading
-from typing import List, Union
+from typing import List, Tuple, Union
 
 
 def exec_process(args):
@@ -40,8 +40,8 @@ class Kumoko:
     def __init__(self, max_threads=8):
         # database related
         self._io_lock = threading.Lock()
-        self._filename = './kumoko.db'
-        if not os.path.exists(self._filename):
+        self._db_filename = './kumoko.db'
+        if not os.path.exists(self._db_filename):
             self._init_db()
         # logging
         self._stdout_lock = threading.Lock()
@@ -52,7 +52,7 @@ class Kumoko:
 
     def _init_db(self):
         """ _init_db() -- first time table creation """
-        db = sqlite3.connect(self._filename)
+        db = sqlite3.connect(self._db_filename)
         cur = db.cursor()
         cur.execute(""" CREATE TABLE TraceEntries (
             run_id      INTEGER  NOT NULL,
@@ -85,7 +85,7 @@ class Kumoko:
         @note: this part is thread safe. """
         self._io_lock.acquire()
         # retrieve run id
-        db = sqlite3.connect(self._filename)
+        db = sqlite3.connect(self._db_filename)
         cur = db.cursor()
         cur.execute('SELECT MAX(run_id) FROM Traces;')
         run_id = cur.fetchone()[0]
@@ -193,6 +193,12 @@ class Kumoko:
             self.log('error', '%s[%s] not reachable from %s[%s]', dst_ip,
                      dst_host, src_ip, src_host)
             return
+        # prepend first hop
+        traces = [TraceEntry(
+            hop=0,
+            delay=0.0,
+            router_ip=src_ip,
+        )] + traces
         # append last hop
         if len(traces) == 0 or traces[-1].router_ip != dst_ip:
             traces.append(TraceEntry(
@@ -237,7 +243,7 @@ class Kumoko:
     def show(self) -> None:
         """ show() -- display database """
         self._io_lock.acquire()
-        db = sqlite3.connect('kumoko.db')
+        db = sqlite3.connect(self._db_filename)
         cur = db.cursor()
         cur.execute("""
             SELECT a.run_id, desc, src_host, src_ip, dst_host, dst_ip,
