@@ -220,7 +220,11 @@ class Kumoko:
         src_host = 'localhost'
         # there are many possible ips
         self.log('info', 'resolving ip addresses for [%s]', dst_host)
-        answers = dns.resolver.resolve(dst_host, rtype)
+        try:
+            answers = dns.resolver.resolve(dst_host, rtype)
+        except dns.resolver.NoAnswer:
+            self.log('error', 'destination host [%s] invalid', dst_host)
+            answers = []
         for rdata in answers:
             dst_ip = str(rdata)
             self.log('info', 'spawning traceroute event %s[%s] -> %s[%s]',
