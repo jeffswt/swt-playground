@@ -1,0 +1,13 @@
+
+# kumoko database
+*.db
+
+# graphiviz file
+*.gv
+
+# graphviz output
+*.jpg
+*.jpeg
+*.png
+*.svg
+*.pdf
