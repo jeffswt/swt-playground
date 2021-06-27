@@ -234,7 +234,22 @@ class Kumoko:
                 desc, src_ip, src_host, dst_ip, dst_host, max_delay))
             th.start()
             self._th_lock.release()
-            self._th_list.append(th)
+            # self._th_list.append(th)
+        return
+
+    def record_mx(self, desc: str, dst_host: str, max_delay: float) -> None:
+        """ record_mx() -- resolve mail server """
+        self.log('info', 'resolving mail addresses for [mail@%s]', dst_host)
+        try:
+            answers = dns.resolver.resolve(dst_host, 'MX')
+        except dns.resolver.NoAnswer:
+            self.log('error', 'destination host [mail@%s] invalid', dst_host)
+            answers = []
+        for rdata in answers:
+            dst_mx = str(rdata).split(' ')[-1]
+            self.log('info', 'found mail server [%s] for [mail@%s]', dst_mx,
+                     dst_host)
+            self.record(desc, dst_mx, max_delay)
         return
 
     def join(self):
