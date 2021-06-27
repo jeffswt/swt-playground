@@ -1,6 +1,7 @@
 
 from dataclasses import dataclass
 import dns.resolver
+import graphviz
 import os
 from prettytable import PrettyTable
 import re
@@ -264,6 +265,76 @@ class Kumoko:
         self._io_lock.release()
         print(table)
         return
+
+    def get_topology(self) -> List[Tuple[str, str, float]]:
+        self._io_lock.acquire()
+        db = sqlite3.connect(self._db_filename)
+        cur = db.cursor()
+        runs = {}  # run_id -> [(hop, router_ip, delay)]
+        # parse all
+        cur.execute('SELECT run_id, hop, router_ip, delay FROM TraceEntries;')
+        for run_id, *data in cur.fetchall():
+            if run_id not in runs:
+                runs[run_id] = []
+            runs[run_id].append(tuple(data))
+        cur.close()
+        db.close()
+        # extract every pair of delay
+        edges = []
+        for run_id, hops in runs.items():
+            data_per_hop = []  # (hop) [(router_ip, delay)]
+            for hop in sorted(set(t[0] for t in hops)):
+                data_per_hop.append(list(filter(lambda x: x[0] == hop, hops)))
+            # adjacent hops create adjacency
+            for i in range(1, len(data_per_hop)):
+                pre, cur = data_per_hop[i - 1], data_per_hop[i]
+                for j in pre:  # any -> any
+                    for k in cur:
+                        edges.append((j[1], k[1], k[2] - j[2]))
+                pass
+        # group by edge tuple
+        edge_grp = {}
+        for u, v, delay in edges:
+            if (u, v) not in edge_grp:
+                edge_grp[(u, v)] = []
+            edge_grp[(u, v)].append(delay)
+        # get averaged result
+        result = []
+        for (u, v), delays in edge_grp.items():
+            result.append((u, v, max(sum(delays) / len(delays), 0.0)))
+        return result
+
+    def export_graph(self) -> None:
+        """ export_graph() -- export graph to image """
+        # initialize
+        self._io_lock.acquire()
+        db = sqlite3.connect(self._db_filename)
+        graph = graphviz.Digraph()
+        # capture available ip addresses from routers
+        addresses = {}
+        cur = db.cursor()
+        cur.execute("SELECT router_ip FROM TraceEntries;")
+        for ip, in cur.fetchall():
+            addresses[ip] = ip
+        cur.close()
+        # capture ip addresses from src & dest
+        cur = db.cursor()
+        cur.execute("""SELECT src_ip, src_host FROM Traces
+            UNION SELECT dst_ip, dst_host FROM Traces""")
+        for ip, host in cur.fetchall():
+            addresses[ip] = '%s [%s]' % (ip, host)
+        db.close()
+        self._io_lock.release()
+        # get topology and map create graph
+        topo = self.get_topology()
+        for addr, alias in addresses.items():
+            graph.node(addr, alias)
+        for u, v, delay in topo:
+            delay = '%.3f ms' % (delay * 1000)
+            graph.edge(u, v, delay)
+        # paint
+        graph.format = 'svg'
+        graph.render('./kumoko-output.gv')
     pass
 
 
