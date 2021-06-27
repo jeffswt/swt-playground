@@ -234,7 +234,7 @@ class Kumoko:
                 desc, src_ip, src_host, dst_ip, dst_host, max_delay))
             th.start()
             self._th_lock.release()
-            # self._th_list.append(th)
+            self._th_list.append(th)
         return
 
     def record_mx(self, desc: str, dst_host: str, max_delay: float) -> None:
@@ -286,6 +286,8 @@ class Kumoko:
         return
 
     def get_topology(self) -> List[Tuple[str, str, float]]:
+        """ get_topology() -- retrieves list of (u_ip, v_ip, delay) tuples
+        generated from traceroute results """
         self._io_lock.acquire()
         db = sqlite3.connect(self._db_filename)
         cur = db.cursor()
@@ -344,13 +346,35 @@ class Kumoko:
             addresses[ip] = '%s [%s]' % (ip, host)
         db.close()
         self._io_lock.release()
-        # get topology and map create graph
+        # get topology
         topo = self.get_topology()
-        for addr, alias in addresses.items():
-            graph.node(addr, alias)
+        # determine gateway routers
+        gateways = set()
+        is_gateway = (lambda delay: delay >= 0.020)
         for u, v, delay in topo:
+            if is_gateway(delay):
+                gateways.add(u)
+                gateways.add(v)
+        # draw nodes and edges
+        for addr, alias in addresses.items():
+            # node type
+            if addr == alias:  # regular node
+                attr = {'shape': 'box'}
+            elif 'localhost' in alias:  # special node / src endpoint
+                attr = {'shape': 'box3d', 'style': 'filled',
+                        'fillcolor': 'palegreen3'}
+            else:  # special node / dst endpoint
+                attr = {'shape': 'box3d', 'style': 'filled',
+                        'fillcolor': 'skyblue1'}
+            # is gateway?
+            if addr in gateways and 'fillcolor' not in attr:
+                attr['style'] = 'filled'
+                attr['fillcolor'] = 'plum1'
+            graph.node(addr, alias, **attr)
+        for u, v, delay in topo:
+            attr = {'color': 'red'} if is_gateway(delay) else {}  # gw
             delay = '%.3f ms' % (delay * 1000)
-            graph.edge(u, v, delay)
+            graph.edge(u, v, delay, **attr)
         # paint
         graph.format = 'svg'
         graph.render('./kumoko-output.gv')
