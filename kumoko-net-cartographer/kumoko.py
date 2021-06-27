@@ -137,6 +137,8 @@ class Kumoko:
                     delays.append(None)
                     continue
                 if len(delays) < 3:  # guaranteed 3 tries
+                    if '<' in word:
+                        word = '1'
                     delays.append(int(word))
                 else:
                     router_ip = word if '.' in word else ''
@@ -188,11 +190,13 @@ class Kumoko:
             if ping_delay is not None:
                 traces = self._perform_local_trace_win(dst_ip, 60, max_delay)
         else:
+            self._th_semaphore.release()
             raise NotImplementedError('win only')
         # check if unreachable
         if ping_delay is None:
             self.log('error', '%s[%s] not reachable from %s[%s]', dst_ip,
                      dst_host, src_ip, src_host)
+            self._th_semaphore.release()
             return
         # prepend first hop
         traces = [TraceEntry(
