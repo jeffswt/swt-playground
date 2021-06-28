@@ -9,7 +9,7 @@ LDLIBS = -lpcap -lnids -lcrypto -lssl
 
 target := quinella
 modules := deps/unprettysoup/unprettysoup utils packets tcp http main         \
-	       tls_cipher_suite tls
+	       tls_cipher_suite tls tls_crypto
 modules_objs := $(foreach mod, $(modules), $(mod).o)
 
 all: $(modules_objs)
