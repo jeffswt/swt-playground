@@ -1,0 +1,3 @@
+[submodule "quinella-unwebmail/deps/unprettysoup"]
+	path = quinella-unwebmail/deps/unprettysoup
+	url = https://github.com/jeffswt/unprettysoup

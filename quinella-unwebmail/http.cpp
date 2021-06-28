@@ -1,7 +1,7 @@
 
 #include "http.h"
 
-#include "unprettysoup.h"
+#include "deps/unprettysoup/unprettysoup.h"
 
 using namespace std;
 using namespace us3;
