@@ -31,7 +31,7 @@ std::string b16decode(std::string in);
 /// @param in: A string consisting only of 0-9
 /// @return Integer whose value equals to input string.
 ///         Returns -1 when illegal characters occur.
-/// @exception Overflow: It's the user's duty to ensure no overflow.
+/// @exception It's the user's duty to ensure no overflow will occur.
 int string_to_int(std::string in);
 
 /// Print vector of pairs in a Python format.
