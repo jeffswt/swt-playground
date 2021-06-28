@@ -8,7 +8,8 @@ LOADLIBES =
 LDLIBS = -lpcap -lnids -lcrypto -lssl
 
 target := quinella
-modules := main utils packets tcp
+modules := deps/unprettysoup/unprettysoup utils packets tcp http main         \
+	       tls_cipher_suite
 modules_objs := $(foreach mod, $(modules), $(mod).o)
 
 all: $(modules_objs)
