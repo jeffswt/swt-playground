@@ -11,3 +11,6 @@
 *.png
 *.svg
 *.pdf
+
+# allow assets
+!assets/*
