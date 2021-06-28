@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_TLS_CRYPTO_H
+#define _QUINELLA_TLS_CRYPTO_H
+
 #include <iostream>
 #include <openssl/hmac.h>
 #include "tls_cipher_suite.h"
@@ -28,3 +31,5 @@ std::string tls_key_phash(CipherHmacProtocol proto, std::string secret,
 /// @returns PRF_proto(secret, label, seed)
 std::string tls_key_prf(CipherHmacProtocol proto, std::string secret,
     std::string label, std::string seed, int length);
+
+#endif  // _QUINELLA_TLS_CRYPTO_H

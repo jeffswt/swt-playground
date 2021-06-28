@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_PACKETS_H
+#define _QUINELLA_PACKETS_H
+
 #include <memory>
 #include <pcap/pcap.h>
 
@@ -51,3 +54,5 @@ pcap_t* pcap_open_capture_delegate(PcapDevice device, std::string filter);
 ///                signature should be like "void myHandler(PcapPacket pkt)".
 void pcap_capture_tcp_packets(PcapDevice device, std::string filter,
                               void (*handler)(PcapPacket));
+
+#endif  // _QUINELLA_PACKETS_H

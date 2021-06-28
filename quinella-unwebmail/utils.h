@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_UTILS_H
+#define _QUINELLA_UTILS_H
+
 #include <iostream>
 #include <vector>
 #include <map>
@@ -65,3 +68,5 @@ void visualize_dict(std::ostream &out, std::map<_Ta, _Tb> in) {
 /// @param out: Export stream, like std::cout.
 /// @param msg: Binary content.
 void print_hex_box(std::ostream &out, std::string msg);
+
+#endif  // _QUINELLA_UTILS_H

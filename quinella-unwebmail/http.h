@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_HTTP_H
+#define _QUINELLA_HTTP_H
+
 #include "tcp.h"
 
 
@@ -60,3 +63,5 @@ public:
 };
 
 HttpConnection http_conn_from_tcp_stream(TcpStream stream);
+
+#endif  // _QUINELLA_HTTP_H

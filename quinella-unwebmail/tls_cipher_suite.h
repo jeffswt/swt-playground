@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_TLS_CIPHER_SUITE_H
+#define _QUINELLA_TLS_CIPHER_SUITE_H
+
 #include <iostream>
 #include <sys/types.h>
 
@@ -117,3 +120,5 @@ public:
 /// @return Cipher suite object.
 /// @exception Throws CapException if no such cipher suite found.
 CipherSuite tls_get_cipher_suite(uint16_t key);
+
+#endif  // _QUINELLA_TLS_CIPHER_SUITE_H

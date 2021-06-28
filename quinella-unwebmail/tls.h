@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_TLS_H
+#define _QUINELLA_TLS_H
+
 #include <iostream>
 #include "tcp.h"
 #include <vector>
@@ -74,3 +77,5 @@ void tls_set_keylogfile_path(std::string path);
 /// @param stream: Input TCP stream.
 /// @return Exported TLS stream which is not yet decrypted.
 TlsStream tls_stream_from_tcp_stream(TcpStream stream);
+
+#endif  // _QUINELLA_TLS_H

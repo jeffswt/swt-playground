@@ -1,4 +1,7 @@
 
+#ifndef _QUINELLA_TCP_H
+#define _QUINELLA_TCP_H
+
 #include <map>
 #include <nids.h>
 
@@ -57,3 +60,5 @@ typedef void (*TcpStreamHandler)(TcpStream);
 /// @exception Undefined behaviour when used in multithreading environments.
 void tcp_capture_stream(PcapDevice device, std::string filter,
                         TcpStreamHandler handler);
+
+#endif  // _QUINELLA_TCP_H
