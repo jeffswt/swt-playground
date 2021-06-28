@@ -382,7 +382,9 @@ class Kumoko:
             graph.edge(u, v, delay, **attr)
         # paint
         graph.format = 'svg'
-        graph.render('./kumoko-output.gv')
+        graph.engine = 'dot'
+        ograph = graph.unflatten(stagger=3)
+        ograph.render('./kumoko-output.gv')
     pass
 
 
