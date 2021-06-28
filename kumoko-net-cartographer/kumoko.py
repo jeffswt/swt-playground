@@ -344,10 +344,11 @@ class Kumoko:
         cur.close()
         # capture ip addresses from src & dest
         cur = db.cursor()
-        cur.execute("""SELECT src_ip, src_host FROM Traces
-            UNION SELECT dst_ip, dst_host FROM Traces""")
-        for ip, host in cur.fetchall():
-            addresses[ip] = '%s [%s]' % (ip, host)
+        cur.execute("""SELECT desc, src_ip, src_host FROM Traces
+            UNION SELECT desc, dst_ip, dst_host FROM Traces""")
+        for desc, ip, host in cur.fetchall():
+            name = desc.split('->')[-1].strip()
+            addresses[ip] = '%s [%s | %s]' % (ip, host, name)
         db.close()
         self._io_lock.release()
         # get topology
