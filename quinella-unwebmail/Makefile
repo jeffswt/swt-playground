@@ -8,7 +8,7 @@ LOADLIBES =
 LDLIBS = -lpcap -lnids -lcrypto -lssl
 
 target := quinella
-modules := main
+modules := main utils
 modules_objs := $(foreach mod, $(modules), $(mod).o)
 
 all: $(modules_objs)
