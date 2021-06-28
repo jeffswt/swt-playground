@@ -60,3 +60,8 @@ void visualize_dict(std::ostream &out, std::map<_Ta, _Tb> in) {
         vec.push_back(pr);
     visualize_dict(out, vec);
 }
+
+/// Prints string like in WinHex.
+/// @param out: Export stream, like std::cout.
+/// @param msg: Binary content.
+void print_hex_box(std::ostream &out, std::string msg);

@@ -1,6 +1,8 @@
 
 #include "utils.h"
 
+#include <iomanip>
+
 
 CapException::CapException(std::string what) {
     this->_what = what;
@@ -53,4 +55,19 @@ int string_to_int(std::string in) {
         else
             return -1;
     return res;
+}
+
+void print_hex_box(std::ostream &out, std::string msg) {
+    for (int i = 0; i < msg.length(); i++) {
+        if (i % 32 == 0)
+            out << "     ";
+        else if (i % 32 == 16)
+            out << "   ";
+        else
+            out << " ";
+        int val = (int)msg[i] & 0xff;
+        out << std::setfill('0') << std::setw(2) << std::hex << val;
+        if (i % 32 == 31 || i + 1 == msg.length())
+            out << "\n";
+    }
 }
