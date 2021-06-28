@@ -246,7 +246,7 @@ class Kumoko:
         self.log('info', 'resolving mail addresses for [mail@%s]', dst_host)
         try:
             answers = dns.resolver.resolve(dst_host, 'MX')
-        except dns.resolver.NoAnswer:
+        except Exception:
             self.log('error', 'destination host [mail@%s] invalid', dst_host)
             answers = []
         for rdata in answers:
