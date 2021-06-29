@@ -7,16 +7,23 @@ LDFLAGS = -g
 LOADLIBES =
 LDLIBS = -lpcap -lnids -lcrypto -lssl
 
-target := quinella
+target := build/quinella
 modules := deps/unprettysoup/unprettysoup utils packets tcp http main         \
 	       tls_cipher_suite tls tls_crypto
-modules_objs := $(foreach mod, $(modules), $(mod).o)
+modules_objs := $(foreach mod, $(modules), build/$(mod).o)
 
-all: $(modules_objs)
+all: makedirs link
+
+link: $(modules_objs)
 	$(CXX) $(LDFLAGS) $^ -o $(target) $(LOADLIBES) $(LDLIBS)
 
-%.o: %.cpp
+makedirs:
+	mkdir -p build/
+	mkdir -p build/deps/unprettysoup
+
+build/%.o: %.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ -c $<
 
 clean:
 	rm -f $(modules_objs)
+	rm -rf build
