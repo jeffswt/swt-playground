@@ -100,7 +100,7 @@ void _nids_pcap_handler(u_char *a, const pcap_pkthdr *b, const u_char *c) {
     nids_pcap_handler(a, (pcap_pkthdr*)_b, (u_char*)_c);
 }
 
-void capture_tcp_stream(PcapDevice device, std::string filter,
+void tcp_capture_stream(PcapDevice device, std::string filter,
                         TcpStreamHandler handler) {
     nids_params.promisc = false;
     if (!nids_init())

@@ -22,6 +22,11 @@ public:
 ///         length guaranteed to be even
 std::string b16encode(std::string in);
 
+// hex_to_int() -- Convert hexadecimal character to integer counterpart.
+// @param ch: Input character, range = 0-9, a-f, A-F.
+// @return Integer counterpart, 0 if the input is invalid.
+int hex_to_int(char ch);
+
 /// Decodes b16encode()'d hexadecimal string into binary.
 /// @param in: Hexadecimal string consisting only of 0-9, a-f and A-F.
 ///            It's the users' duty to ensure characters are within range

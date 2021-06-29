@@ -22,9 +22,6 @@ std::string b16encode(std::string in) {
     return out;
 }
 
-// hex_to_int() -- Convert hexadecimal character to integer counterpart.
-// @param ch: Input character, range = 0-9, a-f, A-F.
-// @return Integer counterpart, 0 if the input is invalid.
 int hex_to_int(char ch) {
     if (ch >= '0' && ch <= '9')
         return ch - '0';
