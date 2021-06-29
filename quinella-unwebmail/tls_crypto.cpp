@@ -2,6 +2,8 @@
 #include "tls_crypto.h"
 
 #include "utils.h"
+#include "tcp.h"
+#include "tls.h"
 
 using namespace std;
 
@@ -84,4 +86,40 @@ string tls_key_prf(CipherHmacProtocol hmac, string secret, string label,
     //  following bytes:
     //     73 6C 69 74 68 79 20 74 6F 76 65 73
     return tls_key_phash(hmac, secret, label + seed, length);
+}
+
+// github:wireshark/wireshark:epan/dissectors/packet-tls-utils.h:682
+// github:wireshark/wireshark:epan/dissectors/packet-tls-utils.h:3691
+// 2719: ssl_cipher_init
+// 3691: ssl_create_decoder
+// 4612: tls_decrypt_aead_record
+// 4853: ssl_decrypt_record
+
+class TlsSession {
+public:
+    ConnTuple conn;
+    uint16_t cipher_suite;
+    TlsSession() {}
+    TlsSession(ConnTuple conn) : conn(conn) {}
+};
+
+void tls_decrypt_conn_aead(int signature, TlsStream &connection,
+        CipherSuite &conn_cs, TlsSession &session) {
+    // ...
+    return ;
+}
+
+TlsSession tls_decrypt_connection(TlsStream connection) {
+    // On firefox: about:config -> security.tls.version.max to disable TLS 1.3
+    TlsSession session(connection.conn);
+    // get encryption algorithm
+    int mac_key_length = 0, enc_key_length = 0;
+    CipherSuite conn_cs = tls_get_cipher_suite(connection.cipher_suite);
+    // verdict on different algorithms
+    #define match_cs(x, y, z)                                                 \
+        if (conn_cs.enc == CipherEncryptionProtocol::x) {                     \
+        y(z, connection, conn_cs, session); return session; }
+    match_cs(TLS_CEP_AES_128_GCM, tls_decrypt_conn_aead, 128);
+    match_cs(TLS_CEP_AES_256_GCM, tls_decrypt_conn_aead, 256);
+    #undef match_cs
 }
