@@ -121,6 +121,21 @@ namespace BridgeAlt.Controllers
             );
         }
 
+        private async Task InternalDeleteFolder(string path)
+        {
+            if (System.IO.File.Exists(path)) {
+                await Task.Run(() => System.IO.File.Delete(path));
+                return ;
+            }
+            // iterate folder contents
+            var parent = new DirectoryInfo(path);
+            foreach (var child in parent.EnumerateFiles().ToList())
+                await InternalDeleteFolder(child.FullName);
+            foreach (var child in parent.EnumerateDirectories().ToList())
+                await InternalDeleteFolder(child.FullName);
+            await Task.Run(() => System.IO.Directory.Delete(path));
+        }
+
         // GET: api/files/download/<path>
         [HttpGet("download/{path}")]
         public async Task<ActionResult> DownloadFileInterface(string path)
@@ -199,6 +214,22 @@ namespace BridgeAlt.Controllers
                 return NotFound();
             await InternalCopyFolder(srcPath, destPath);
             return Ok();
+        }
+
+        // POST: api/files/delete
+        [HttpPost("delete")]
+        public async Task<ActionResult> DeleteFileInterface(LocationRequest request)
+        {
+            // verify identity
+            var idVerify = VerifyIdentity(request);
+            if (idVerify != null)
+                return idVerify;
+            // perform action
+            string? path = ResolvePath(request.loc);
+            if (path == null)
+                return NotFound();
+            await InternalDeleteFolder(path);
+            return Ok(new StatusResponse { status = "ok" });
         }
     }
 }
