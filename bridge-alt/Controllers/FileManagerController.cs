@@ -77,12 +77,14 @@ namespace BridgeAlt.Controllers
                 throw new UnauthorizedAccessException("destination file exists");
             if (System.IO.Directory.Exists(destPath))
                 throw new UnauthorizedAccessException("destination folder exists");
-            // moving file
+            // perform action on file
             if (System.IO.File.Exists(srcPath))
             {
                 await fileAction(srcPath, destPath);
                 return;
             }
+            // create destination folder
+            System.IO.Directory.CreateDirectory(destPath);
             // iterate folder contents
             var parent = new DirectoryInfo(srcPath);
             foreach (var child in parent.EnumerateFiles())
