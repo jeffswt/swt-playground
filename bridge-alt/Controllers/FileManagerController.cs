@@ -196,11 +196,13 @@ namespace BridgeAlt.Controllers
             if (srcPath == null || destPath == null)
                 return NotFound();
             await InternalMoveFolder(srcPath, destPath);
-            return Ok();
+            // remove source folder
+            await InternalDeleteFolder(srcPath);
+            return Ok(new StatusResponse { status = "ok" });
         }
 
         // POST: api/files/copy
-        [HttpGet("copy")]
+        [HttpPost("copy")]
         public async Task<ActionResult> CopyFileInterface(VectorRequest request)
         {
             // verify identity
@@ -213,7 +215,7 @@ namespace BridgeAlt.Controllers
             if (srcPath == null || destPath == null)
                 return NotFound();
             await InternalCopyFolder(srcPath, destPath);
-            return Ok();
+            return Ok(new StatusResponse { status = "ok" });
         }
 
         // POST: api/files/delete

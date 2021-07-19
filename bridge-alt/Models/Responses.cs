@@ -3,6 +3,10 @@ using System.Collections.Generic;
 
 namespace BridgeAlt.Models
 {
+    public class StatusResponse
+    {
+        public string status { get; set; }
+    }
     public class FileDescription
     {
         public bool isFile { get; set; }
