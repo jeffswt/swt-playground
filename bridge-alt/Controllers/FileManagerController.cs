@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Web;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using BridgeAlt.Models;
@@ -123,9 +124,10 @@ namespace BridgeAlt.Controllers
 
         private async Task InternalDeleteFolder(string path)
         {
-            if (System.IO.File.Exists(path)) {
+            if (System.IO.File.Exists(path))
+            {
                 await Task.Run(() => System.IO.File.Delete(path));
-                return ;
+                return;
             }
             // iterate folder contents
             var parent = new DirectoryInfo(path);
@@ -136,11 +138,31 @@ namespace BridgeAlt.Controllers
             await Task.Run(() => System.IO.Directory.Delete(path));
         }
 
-        // GET: api/files/download/<path>
-        [HttpGet("download/{path}")]
-        public async Task<ActionResult> DownloadFileInterface(string path)
+        // GET: api/files/download?path=<path>&token=<token>
+        [HttpGet("download")]
+        public ActionResult DownloadFileInterface(string path, string token)
         {
-            throw new NotImplementedException();
+            // https://docs.microsoft.com/en-us/aspnet/core/mvc/controllers/routing?view=aspnetcore-5.0#generating-urls-by-action-name
+            //   > Any additional route values that don't match route parameters are put in the query string.
+            // verify identity
+            var idVerify = VerifyIdentity(new AuthorizedRequest { token = token });
+            if (idVerify != null)
+                return idVerify;
+            // get file path
+            string? fpath = ResolvePath(path);
+            if (fpath == null)
+                return NotFound();
+            string fname = fpath.Split("\\").Last();
+            Console.WriteLine(fname);
+            // open file up
+            var file = System.IO.File.OpenRead(fpath);
+            // TODO: can't detect mime automatically
+            return File(
+                fileStream: file,
+                contentType: "application/octet-stream",
+                fileDownloadName: fname,
+                enableRangeProcessing: true
+            );
         }
 
         // POST: api/files/list
