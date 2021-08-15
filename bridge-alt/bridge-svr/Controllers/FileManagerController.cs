@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Web;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using BridgeAlt.Models;
@@ -77,12 +78,14 @@ namespace BridgeAlt.Controllers
                 throw new UnauthorizedAccessException("destination file exists");
             if (System.IO.Directory.Exists(destPath))
                 throw new UnauthorizedAccessException("destination folder exists");
-            // moving file
+            // perform action on file
             if (System.IO.File.Exists(srcPath))
             {
                 await fileAction(srcPath, destPath);
                 return;
             }
+            // create destination folder
+            System.IO.Directory.CreateDirectory(destPath);
             // iterate folder contents
             var parent = new DirectoryInfo(srcPath);
             foreach (var child in parent.EnumerateFiles())
@@ -119,11 +122,47 @@ namespace BridgeAlt.Controllers
             );
         }
 
-        // GET: api/files/download/<path>
-        [HttpGet("download/{path}")]
-        public async Task<ActionResult> DownloadFileInterface(string path)
+        private async Task InternalDeleteFolder(string path)
         {
-            throw new NotImplementedException();
+            if (System.IO.File.Exists(path))
+            {
+                await Task.Run(() => System.IO.File.Delete(path));
+                return;
+            }
+            // iterate folder contents
+            var parent = new DirectoryInfo(path);
+            foreach (var child in parent.EnumerateFiles().ToList())
+                await InternalDeleteFolder(child.FullName);
+            foreach (var child in parent.EnumerateDirectories().ToList())
+                await InternalDeleteFolder(child.FullName);
+            await Task.Run(() => System.IO.Directory.Delete(path));
+        }
+
+        // GET: api/files/download?path=<path>&token=<token>
+        [HttpGet("download")]
+        public ActionResult DownloadFileInterface(string path, string token)
+        {
+            // https://docs.microsoft.com/en-us/aspnet/core/mvc/controllers/routing?view=aspnetcore-5.0#generating-urls-by-action-name
+            //   > Any additional route values that don't match route parameters are put in the query string.
+            // verify identity
+            var idVerify = VerifyIdentity(new AuthorizedRequest { token = token });
+            if (idVerify != null)
+                return idVerify;
+            // get file path
+            string? fpath = ResolvePath(path);
+            if (fpath == null)
+                return NotFound();
+            string fname = fpath.Split("\\").Last();
+            Console.WriteLine(fname);
+            // open file up
+            var file = System.IO.File.OpenRead(fpath);
+            // TODO: can't detect mime automatically
+            return File(
+                fileStream: file,
+                contentType: "application/octet-stream",
+                fileDownloadName: fname,
+                enableRangeProcessing: true
+            );
         }
 
         // POST: api/files/list
@@ -179,11 +218,13 @@ namespace BridgeAlt.Controllers
             if (srcPath == null || destPath == null)
                 return NotFound();
             await InternalMoveFolder(srcPath, destPath);
-            return Ok();
+            // remove source folder
+            await InternalDeleteFolder(srcPath);
+            return Ok(new StatusResponse { status = "ok" });
         }
 
         // POST: api/files/copy
-        [HttpGet("copy")]
+        [HttpPost("copy")]
         public async Task<ActionResult> CopyFileInterface(VectorRequest request)
         {
             // verify identity
@@ -196,7 +237,23 @@ namespace BridgeAlt.Controllers
             if (srcPath == null || destPath == null)
                 return NotFound();
             await InternalCopyFolder(srcPath, destPath);
-            return Ok();
+            return Ok(new StatusResponse { status = "ok" });
+        }
+
+        // POST: api/files/delete
+        [HttpPost("delete")]
+        public async Task<ActionResult> DeleteFileInterface(LocationRequest request)
+        {
+            // verify identity
+            var idVerify = VerifyIdentity(request);
+            if (idVerify != null)
+                return idVerify;
+            // perform action
+            string? path = ResolvePath(request.loc);
+            if (path == null)
+                return NotFound();
+            await InternalDeleteFolder(path);
+            return Ok(new StatusResponse { status = "ok" });
         }
     }
 }
