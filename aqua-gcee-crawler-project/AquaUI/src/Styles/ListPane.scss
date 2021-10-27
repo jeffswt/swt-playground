@@ -1,0 +1,180 @@
+
+@import 'MaterialPalette.scss';
+
+div.list-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 35%;
+    min-width: 35%;
+    max-width: 35%;
+
+    & > div.filter {
+        height: 4.5em;
+        width: 100%;
+        & > div.input {
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            & > input {
+                height: 2em;
+                font-size: 120%;
+                border: 1px material-color(blue-gray, 100) solid;
+                border-radius: 0.5em;
+                background-color: white;
+                &:focus {
+                    border: 1px material-color(light-blue, 400) solid;
+                    outline: inherit;
+                }
+                margin: {
+                    top: 0.7em;
+                    left: 0.3em;
+                }
+                padding-left: 1ch;
+                width: 100%;
+            }
+            & > div.do-filter {
+                height: 2em;
+                width: 3em;
+                text-align: center;
+                vertical-align: middle;
+                padding-top: 0.6em;
+                border-radius: 0.5em;
+                border: 1px material-color(indigo, 500) solid;
+                background-color: material-color(indigo, 400);
+                color: white;
+                transition: ease 200ms 0s;
+                margin: {
+                    top: 0.7em;
+                    left: 0.3em;
+                    right: 0.3em;
+                }
+                &:hover {
+                    background-color: material-color(indigo, 350);
+                }
+                &:active {
+                    background-color: material-color(indigo, 300);
+                }
+            }
+        }
+    }
+
+    & > div.items {
+        height: 100%;
+        overflow-y: scroll;
+        box-shadow: 35px 25px 30px -35px material-color(blue-gray, 200) inset;
+    }
+    box-shadow: 25px 0px 25px -30px material-color(blue-gray, 700) inset;
+}
+
+div.list-pane > div.items > div.list-pane-button {
+    & > div.align-left {
+        display: flex;
+        flex-direction: row;
+    }
+
+    & > div.align-left > div.logo {
+        & > img {
+            height: 3.8em;
+            width: 3.8em;
+            object-fit: cover;
+        }
+        display: flex;
+        flex-direction: column;
+        justify-content: space-around;
+        overflow: clip;
+        padding: 0.2em;
+        height: 4em;
+        margin: {
+            top: 0.5em;
+            bottom: 0.5em;
+            right: 1em;
+        }
+        background-color: white;
+        border-radius: 1em;
+        box-shadow: 0px 0px 7px 0px material-color(blue-gray, 100);
+    }
+
+    & > div.align-left > div.desc {
+        & > div.title {
+            padding-top: 0.4em;
+        }
+        & > div.buffs {
+            font-size: 86%;
+            // height: 2em;
+            & > span {
+                vertical-align: middle;
+                padding: {
+                    top: 0.2em;
+                    bottom: 0.2em;
+                    left: 0.6ch;
+                    right: 0.6ch;
+                }
+                margin: {
+                    left: 0.4ch;
+                    right: 0.4ch;
+                }
+                color: material-color(light-blue, 600);
+                background-color: material-color(light-blue, 10);
+                border: 1px solid material-color(light-blue, 250);
+                border-radius: 0.5em;
+
+                &:hover {
+                    background-color: material-color(light-blue, 25);
+                    border: 1px solid material-color(light-blue, 450);
+                    color: material-color(light-blue, 700);
+                    transition: ease 200ms 0s;
+                }
+                &:first-child {
+                    margin-left: 0;
+                }
+                &:last-child {
+                    margin-right: 0;
+                }
+            }
+        }
+        height: 5em;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-around;
+    }
+
+    & > div.icon {
+        color: material-color(blue-gray, 300);
+        font-size: 80%;
+        line-height: 6.25em;
+    }
+
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    border-bottom: 1px solid material-color(blue-gray, 75);
+    padding: {
+        left: 0.8em;
+        right: 2.4ch;
+    }
+
+    user-select: none;
+    transition: ease 200ms 0s;
+    &:hover {
+        background-color: material-color(indigo, 15);
+    }
+    &:active {
+        background-color: material-color(indigo, 50);
+    }
+    &.active {
+        background-color: material-color(indigo, 30);
+        box-shadow: 15px 0px 15px 0px material-color(indigo, 80) inset;
+        & > div.icon {
+            color: material-color(blue-gray, 500);
+            font-size: 100%;
+            line-height: 5em;
+        }
+    }
+    &.active:hover {
+        background-color: material-color(indigo, 60);
+    }
+    &.active:active {
+        background-color: material-color(indigo, 75);
+    }
+}

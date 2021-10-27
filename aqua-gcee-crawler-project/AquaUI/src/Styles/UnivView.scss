@@ -1,0 +1,47 @@
+
+@import 'MaterialPalette.scss';
+
+div.univ-view {
+    width: 65%;
+    height: 100vh;
+    overflow-y: scroll;
+    box-shadow: 50px 0px 50px -60px material-color(blue-gray, 70) inset;
+
+    &.empty {
+        font-size: 300%;
+        line-height: 86vh;
+        letter-spacing: 0.6ch;
+        font-weight: 100;
+        color: material-color(blue-gray, 100);
+        text-align: center;
+        user-select: none;
+    }
+
+    padding: {
+        left: 4ch;
+        right: 4ch;
+    }
+}
+
+div.univ-info-block {
+    display: flex;
+    flex-direction: row;
+
+    & > div.title {
+        line-height: 1.8em;
+        color: material-color(blue-gray, 300);
+        & > span.text {
+            padding-left: 1.2ch;
+            padding-right: 1.5ch;
+        }
+    }
+    & > div.items > div.info-item {
+        line-height: 1.4em;
+    }
+    padding-bottom: 0.5em;
+}
+
+div.univ-careers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(370px, 1fr));
+}

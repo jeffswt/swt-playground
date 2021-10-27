@@ -1,0 +1,34 @@
+
+@import 'MaterialPalette.scss';
+
+div.fast-table {
+    max-height: 70vh;
+    overflow-y: scroll;
+    &.low {
+        max-height: none;
+    }
+    &.medium {
+        max-height: none;
+    }
+    & > table {
+        width: 100%;
+    }
+    & > table td {
+        min-width: 8ch;
+        border-bottom: 1px material-color(blue-gray, 50) solid;
+        border-right: 1px material-color(blue-gray, 50) solid;
+        padding: {
+            top: 0.5em;
+            bottom: 0.5em;
+        }
+        &:last-child {
+            border-right: none;
+        }
+        text-align: center;
+    }
+    & > table > thead td {
+        border-bottom: 2px material-color(blue-gray, 500) solid;
+        border-right: none;
+        font-weight: bold;
+    }
+}

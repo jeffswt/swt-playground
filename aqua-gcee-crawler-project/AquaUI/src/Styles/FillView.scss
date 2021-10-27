@@ -1,0 +1,70 @@
+
+@import 'MaterialPalette.scss';
+@import 'UnivView.scss';
+
+div.fill-view {
+    width: calc(65% - 8ch);
+    // overflow-x: hidden;
+}
+
+div.fill-view-top {
+    width: 100%;
+    height: 40vh;
+    overflow-y: scroll;
+    box-shadow: 50px 0px 50px -60px material-color(blue-gray, 70) inset;
+
+    &.empty {
+        font-size: 300%;
+        line-height: 32vh;
+        letter-spacing: 0.6ch;
+        font-weight: 100;
+        color: material-color(blue-gray, 100);
+        text-align: center;
+        user-select: none;
+    }
+
+    padding: {
+        left: 4ch;
+        right: 4ch;
+    }
+}
+
+div.fill-view-bottom {
+    width: 100%;
+    height: 60vh;
+    overflow-y: scroll;
+    box-shadow: 50px 50px 50px -60px material-color(blue-gray, 70) inset;
+
+    padding: {
+        left: 4ch;
+        right: 4ch;
+    }
+}
+
+div.csv-export {
+    font-size: 108%;
+    padding: {
+        left: 10ch;
+        right: 10ch;
+        top: 0.6em;
+        bottom: 0.6em;
+    }
+    margin: {
+        top: 3em;
+        bottom: 1em;
+    }
+    width: 60wh;
+    text-align: center;
+    align-self: center;
+    background-color: white;
+    color: material-color(light-blue, 800);
+    border: 1px material-color(light-blue, 400) solid;
+    border-radius: 1em;
+    transition: ease 200ms 0s;
+    &:hover {
+        background-color: material-color(light-blue, 25);
+    }
+    &:active {
+        background-color: material-color(light-blue, 50);
+    }
+}

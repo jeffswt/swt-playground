@@ -1,0 +1,20 @@
+
+@import 'MaterialPalette.scss';
+
+div.app-frame {
+    display: flex;
+    height: 100vh;
+
+    & > div.app-content {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+    }
+
+    & > div.app-content > div.right-panel {
+        width: 65%;
+        height: 100vh;
+        overflow-y: scroll;
+        box-shadow: 50px 0px 50px -60px material-color(blue-gray, 70) inset;
+    }
+}
