@@ -1,0 +1,91 @@
+
+@import 'MaterialPalette.scss';
+
+div.univ-header {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    cursor: default;
+
+    & > div.logo {
+        & > img {
+            height: 8.8em;
+            width: 8.8em;
+            object-fit: cover;
+            align-self: center;
+        }
+        display: flex;
+        flex-direction: column;
+        justify-content: space-around;
+        overflow: clip;
+        padding: 0.6em;
+        height: 10em;
+        max-height: 10em;
+        min-height: 10em;
+        width: 10em;
+        max-width: 10em;
+        min-width: 10em;
+        margin: {
+            top: 0.5em;
+            bottom: 0.5em;
+            right: 1em;
+        }
+        background-color: white;
+        border-radius: 2em;
+        box-shadow: 0px 0px 15px 0px material-color(blue-gray, 100);
+        user-select: none;
+    }
+
+    & > div.info {
+        padding-left: 1.5ch;
+        padding-top: 0.7em;
+        padding-bottom: 0.2em;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        & > div.align-top {
+            display: flex;
+            flex-direction: column;
+            & > div.title {
+                font-size: 200%;
+                letter-spacing: 0.1ch;
+            }
+            & > div.addr {
+                font-size: 90%;
+                font-weight: 100;
+            }
+        }
+        & > div.buffs {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+
+            & > span.buff {
+                vertical-align: middle;
+                padding: {
+                    top: 0.3em;
+                    bottom: 0.3em;
+                    left: 1.4ch;
+                    right: 1.4ch;
+                }
+                margin: {
+                    right: 1ch;
+                    bottom: 0.5em;
+                }
+                color: material-color(light-blue, 600);
+                background-color: material-color(light-blue, 10);
+                border: 1px solid material-color(light-blue, 250);
+                border-radius: 0.6em;
+
+                &:hover {
+                    background-color: material-color(light-blue, 25);
+                    border: 1px solid material-color(light-blue, 450);
+                    color: material-color(light-blue, 700);
+                    transition: ease 200ms 0s;
+                }
+            }
+        }
+    }
+
+    padding-top: 1.6em;
+}

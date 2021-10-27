@@ -1,0 +1,48 @@
+
+@import 'MaterialPalette.scss';
+
+div.section-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16ch, 1fr));
+    grid-row-gap: 0.6em;
+    grid-column-gap: 0.8em;
+
+    & > div.tile {
+        display: inline-block;
+        border: 1px material-color(light-blue, 200) solid;
+        border-radius: 1em;
+
+        & > div.value {
+            font-size: 160%;
+            padding: {
+                top: 0.7em;
+                bottom: 0.2em;
+                left: 0.9ch;
+            }
+            transition: ease 200ms 0s;
+        }
+        & > div.key {
+            font-size: 90%;
+            padding: {
+                top: 0.4em;
+                bottom: 0.6em;
+                left: 1.6ch;
+                right: 1.6ch;
+            }
+            color: material-color(light-blue, 700);
+            border-top: 1px material-color(light-blue, 300) solid;
+            background-color: material-color(light-blue, 20);
+            transition: ease 200ms 0s;
+        }
+        overflow: clip;
+
+        &:hover {
+            & > div.value {
+                background-color: material-color(blue-gray, 10);
+            }
+            & > div.key {
+                background-color: material-color(light-blue, 40);
+            }
+        }
+    }
+}
