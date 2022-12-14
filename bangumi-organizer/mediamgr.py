@@ -3,6 +3,7 @@ import os
 import pydantic
 from pydantic import BaseModel
 import shutil
+import tqdm
 import typer
 import yaml
 
@@ -195,7 +196,7 @@ class ConversionHelper():
             for fn in result.files:
                 # (self.results[fn] ?? []).push(result)
                 descriptors = self.results.get(fn, [])
-                descriptors.append(result)
+                descriptors.append((rule, result))
                 self.results[fn] = descriptors
             matched = True
         # mark as 'not matched'
@@ -377,7 +378,7 @@ class RenameRule(ConversionRule):
             for episode in bangumi.episodes:
                 # build known patterns
                 seq_2d = (str(episode.seq).rjust(2, '0')
-                          if not isinstance(episode.seq)
+                          if not isinstance(episode.seq, str)
                           else episode.seq)
                 patterns: list[str] = []
                 for alt_title in bangumi.alt_titles:
@@ -403,7 +404,9 @@ class RenameRule(ConversionRule):
 
 # give a list of conversion rules (instances) here... i'm too lazy to implement
 # a metaclass that does registers upon inheritance
-conversion_rules: list[ConversionRule] = []
+conversion_rules: list[ConversionRule] = [
+    RenameRule(),
+]
 
 
 ###############################################################################
