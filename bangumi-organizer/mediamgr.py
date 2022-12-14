@@ -101,7 +101,7 @@ def get_convert_target_fn(descriptor: ConvertDescriptor) -> str:
     return Shell.join_path(
         session_config.output_files_dir,
         descriptor.bangumi.title,
-        f'{descriptor.episode.title}.mp4',
+        f'{descriptor.episode.seq}. {descriptor.episode.title}.mp4',
     )
 
 
@@ -246,6 +246,7 @@ class ConversionHelper():
         be returned in a list (if any, or an empty list otherwise)."""
         # build scan index & error results
         resolved_eps: dict[tuple[str, int | str], ConvertDescriptor] = {}
+        targets: dict[str, ConvertDescriptor] = {}
         errors: list[str] = []
         # scan all file -- kbase matches
         for _fn, records in self.results.items():
@@ -253,6 +254,15 @@ class ConversionHelper():
                 title = descriptor.bangumi.title
                 seq = descriptor.episode.seq
                 resolved_eps[(title, seq)] = descriptor
+                # check if multiple descriptors point to the same target
+                target = get_convert_target_fn(descriptor)
+                if target not in targets or targets[target] == descriptor:
+                    targets[target] = descriptor
+                else:
+                    errors.append(
+                        f'conflict targets: '
+                        f'[{title}]::[{seq}]::[{descriptor.episode.title}]'
+                    )
         # O(n*m) scan for missing ones
         for bangumi in self.knowledge_base:
             for episode in bangumi.episodes:
@@ -364,6 +374,9 @@ class Shell():
             raise RuntimeError(f'target file exists: {target}')
         shutil.move(source, temp_target)
         # finish it up quickly as it's on the same drive
+        if os.path.exists(target):
+            raise RuntimeError(f'target file exists: {target}')
+        time.sleep(0.1)
         shutil.move(temp_target, target)
     pass
 
@@ -384,7 +397,7 @@ class RenameRule(ConversionRule):
                           else episode.seq)
                 patterns: list[str] = []
                 for alt_title in bangumi.alt_titles:
-                    patterns.append(f'{alt_title} - {seq_2d}')
+                    patterns.append(f'{alt_title} - {seq_2d} ')
                 # try to pair up a match
                 match = False
                 for pattern in patterns:
@@ -403,7 +416,7 @@ class RenameRule(ConversionRule):
     def convert(self, descriptor: ConvertDescriptor) -> None:
         target = get_convert_target_fn(descriptor)
         Shell.move(descriptor.files[0], target)
-        time.sleep(0.25)
+        time.sleep(0.1)
         return
 
 
