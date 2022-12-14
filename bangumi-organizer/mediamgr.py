@@ -1,5 +1,6 @@
 
 import os
+import time
 import pydantic
 from pydantic import BaseModel
 import shutil
@@ -176,7 +177,7 @@ class ConversionHelper():
             all_records.append((rule, descriptor))
         # ignore built targets
         all_records = [(rule, descriptor) for rule, descriptor in all_records
-                       if self.target_exists(descriptor)]
+                       if not self.target_exists(descriptor)]
         # notify listener: found total count
         yield (len(all_records), None)
         # go through every rule
@@ -323,6 +324,7 @@ def run_conversion() -> None:
         if progress_bar is not None:
             for line in lines:
                 progress_bar.write(line)
+            progress_bar.update(1)
         pass
     # finish up
     if progress_bar is not None:
@@ -399,7 +401,10 @@ class RenameRule(ConversionRule):
         return None
 
     def convert(self, descriptor: ConvertDescriptor) -> None:
-        pass
+        target = get_convert_target_fn(descriptor)
+        Shell.move(descriptor.files[0], target)
+        time.sleep(0.25)
+        return
 
 
 # give a list of conversion rules (instances) here... i'm too lazy to implement
