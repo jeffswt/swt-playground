@@ -1,5 +1,6 @@
 
 import os
+import re
 import time
 import pydantic
 from pydantic import BaseModel
@@ -410,9 +411,7 @@ class RenameRule(ConversionRule):
         for bangumi in knowledge_base:
             for episode in bangumi.episodes:
                 # build known patterns
-                seq_2d = (str(episode.seq).rjust(2, '0')
-                          if not isinstance(episode.seq, str)
-                          else episode.seq)
+                seq_2d = self.pad_float(episode.seq)
                 patterns: list[str] = []
                 for alt_title in bangumi.alt_titles:
                     patterns.append(f'{alt_title} - {seq_2d} ')
@@ -437,6 +436,16 @@ class RenameRule(ConversionRule):
         Shell.move(descriptor.files[0], target)
         time.sleep(0.1)
         return
+
+    def pad_float(self, num: int | str) -> str:
+        num = str(num)
+        if not re.findall(r'\d+(\.\d+)?', num):
+            return num
+        if num.isnumeric():
+            return num.rjust(2, '0')
+        i, f = num.split('.')
+        return i.rjust(2, '0') + '.' + f
+    pass
 
 
 # give a list of conversion rules (instances) here... i'm too lazy to implement
