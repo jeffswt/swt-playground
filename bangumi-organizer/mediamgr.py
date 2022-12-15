@@ -16,6 +16,8 @@ class SessionConfig(BaseModel):
     source_files_dirs: list[str]
     # Relative path to where output files are placed.
     output_files_dir: str
+    # Whether to wrap up missing files in the error output or not.
+    wrap_missing_files: bool
     pass
 
 
@@ -23,6 +25,7 @@ session_config = SessionConfig(
     knowledge_base_path='',
     source_files_dirs=[],
     output_files_dir='',
+    wrap_missing_files=False,
 )
 
 
@@ -98,11 +101,18 @@ class ConvertDescriptor(BaseModel):
 def get_convert_target_fn(descriptor: ConvertDescriptor) -> str:
     """Turn a conversion descriptor into a target filename (path incl.)."""
     global session_config
-    return Shell.join_path(
+    filename = f'{descriptor.episode.seq}. {descriptor.episode.title}.mp4'
+    path = Shell.join_path(
         session_config.output_files_dir,
         descriptor.bangumi.title,
-        f'{descriptor.episode.seq}. {descriptor.episode.title}.mp4',
+        filename
     )
+    illegal_chars = ['\\', '/', ':', '*', '!', '?', '"', '<', '>', '|',
+                     '·', '...']
+    for ch in illegal_chars:
+        if ch in filename:
+            raise ValueError(f'illegal char "{ch}" in file: "{path}"')
+    return path
 
 
 class ConversionRule():
@@ -317,8 +327,15 @@ def run_conversion() -> None:
     if errors:
         print(f'fatal error: conversion cannot continue because:')
         print(f'--------------------------------------------------------')
+        has_missing_files = False
         for err in errors:
+            if err.startswith('missing files for target:'):
+                if session_config.wrap_missing_files:
+                    has_missing_files = True
+                    continue
             print(f'  - {err}')
+        if has_missing_files:
+            print('  - some targets are missing required dependencies.')
         return
     # run conversion
     progress_bar: tqdm.tqdm | None = None
@@ -343,11 +360,12 @@ def run_conversion() -> None:
 
 
 @cli_app.command()
-def convert(knowledge_base_yaml: str, from_files: list[str], out_dir: str) -> None:
+def convert(knowledge_base_yaml: str, from_files: list[str], out_dir: str, wrap_missing_files: bool = False) -> None:
     global session_config
     session_config.knowledge_base_path = knowledge_base_yaml
     session_config.source_files_dirs = from_files
     session_config.output_files_dir = out_dir
+    session_config.wrap_missing_files = wrap_missing_files
     run_conversion()
 
 
@@ -398,6 +416,7 @@ class RenameRule(ConversionRule):
                 patterns: list[str] = []
                 for alt_title in bangumi.alt_titles:
                     patterns.append(f'{alt_title} - {seq_2d} ')
+                    patterns.append(f'{alt_title}[{seq_2d}]')
                 # try to pair up a match
                 match = False
                 for pattern in patterns:
