@@ -274,6 +274,14 @@ class ConversionHelper():
                         f'conflict targets: '
                         f'[{title}]::[{seq}]::[{descriptor.episode.title}]'
                     )
+                    related_files: set[str] = set()
+                    for f in descriptor.files:
+                        related_files.add(f)
+                    for f in targets[target].files:
+                        related_files.add(f)
+                    for f in related_files:
+                        errors.append(f'  - {f}')
+                pass
         # O(n*m) scan for missing ones
         for bangumi in self.knowledge_base:
             for episode in bangumi.episodes:
@@ -432,14 +440,15 @@ class RenameRule(ConversionRule):
         return None
 
     def convert(self, descriptor: ConvertDescriptor) -> None:
+        source = descriptor.files[0]
         target = get_convert_target_fn(descriptor)
-        Shell.move(descriptor.files[0], target)
+        Shell.move(source, target)
         time.sleep(0.1)
         return
 
     def pad_float(self, num: int | str) -> str:
         num = str(num)
-        if not re.findall(r'\d+(\.\d+)?', num):
+        if not re.findall(r'^\d+(\.\d+)?$', num):
             return num
         if num.isnumeric():
             return num.rjust(2, '0')
