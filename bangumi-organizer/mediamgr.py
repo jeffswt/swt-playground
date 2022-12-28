@@ -439,14 +439,24 @@ class Shell():
         return os.path.join(*components).replace('\\', '/')
 
     @staticmethod
+    def mkdirs_on_file(path: str) -> None:
+        """Create directory parent for file."""
+        dir_path = os.path.dirname(path)
+        # preview mode
+        if session_config.preview_only:
+            ProgressBar.print(f'  $ mkdir -r "{dir_path}"')
+            return
+        os.makedirs(dir_path, exist_ok=True)
+        return
+
+    @staticmethod
     def move(source: str, target: str) -> None:
         # preview mode
         if session_config.preview_only:
             ProgressBar.print(f'  $ mv "{source}" "{target}"')
             return
         # create folders on fs tree
-        dir_path = os.path.dirname(target)
-        os.makedirs(dir_path, exist_ok=True)
+        Shell.mkdirs_on_file(target)
         # ensure that the 'finished' marker be hidden if the move operation
         # stopped halfway through
         temp_target = f'{target}.moving'
@@ -460,6 +470,16 @@ class Shell():
             raise RuntimeError(f'target file exists: {target}')
         time.sleep(0.1)
         shutil.move(temp_target, target)
+
+    @staticmethod
+    def ffmpeg(*args: tuple[str]) -> None:
+        # preview mode
+        if session_config.preview_only:
+            ProgressBar.print('  $ ' + ' '.join(args))
+            return
+        # invoke external implementation
+        FFmpegExecutor(*args, show_progress=True).run()
+        return
     pass
 
 
@@ -548,7 +568,7 @@ class FFmpegExecutor():
         if increment <= 0:
             return
         self._progress_bar.update(increment)
-        self._progress = increment
+        self._progress = position
         return
 
     def _close_progress_bar(self) -> None:
@@ -617,14 +637,73 @@ class FFmpegFinder():
 #   Conversion logics
 
 
+def pad_float(num: int | str) -> str:
+    num = str(num)
+    if not re.findall(r'^\d+(\.\d+)?$', num):
+        return num
+    if num.isnumeric():
+        return num.rjust(2, '0')
+    i, f = num.split('.')
+    return i.rjust(2, '0') + '.' + f
+
+
+class MergerRule(ConversionRule):
+    def matches(self, filename: str, knowledge_base: KnowledgeBase
+                ) -> ConvertDescriptor | None:
+        # try to match pattern
+        pattern = r'/([^/]+)/([0-9.]+) - ([^/]+?)\.(m4a|mp4)'
+        matches = re.findall(pattern, filename)
+        if not matches:
+            return None
+        # extract info from match against knowledge base
+        title, ep_num, ep_title, ext = matches[0]
+        found_bangumi: Bangumi | None = None
+        found_episode: BangumiItem | None = None
+        for bangumi in knowledge_base:
+            if title in bangumi.alt_titles:
+                for episode in bangumi.episodes:
+                    if ep_num == pad_float(episode.seq):
+                        found_bangumi = bangumi
+                        found_episode = episode
+                        break
+        if not found_bangumi or not found_episode:
+            return None
+        # derive conversion descriptor
+        audio_fn = re.sub(r'\.(m4a|mp4)$', '.m4a', filename)
+        video_fn = re.sub(r'\.(m4a|mp4)$', '.mp4', filename)
+        return ConvertDescriptor(
+            bangumi=found_bangumi,
+            episode=found_episode,
+            files=[audio_fn, video_fn],
+        )
+
+    def convert(self, descriptor: ConvertDescriptor) -> None:
+        # extract arguments
+        audio_fn, video_fn = descriptor.files
+        output_final = get_convert_target_fn(descriptor)
+        output_tmp = output_final + '._CONVERTING_.mp4'
+        # combine audio & video tracks
+        Shell.mkdirs_on_file(output_tmp)
+        Shell.ffmpeg(
+            FFmpegFinder.get(),
+            '-i', audio_fn, '-i', video_fn,
+            '-c:a', 'copy', '-c:v', 'copy',
+            '-map', '0:a:0', '-map', '1:v:0',
+            output_tmp, '-y',
+        )
+        # move temporary file back
+        Shell.move(output_tmp, output_final)
+        return
+    pass
+
+
 class RenameRule(ConversionRule):
     def matches(self, filename: str, knowledge_base: KnowledgeBase
                 ) -> ConvertDescriptor | None:
-        found_bangumi: Bangumi | None = None
         for bangumi in knowledge_base:
             for episode in bangumi.episodes:
                 # build known patterns
-                seq_2d = self.pad_float(episode.seq)
+                seq_2d = pad_float(episode.seq)
                 patterns: list[str] = []
                 for alt_title in bangumi.alt_titles:
                     patterns.append(f'{alt_title} - {seq_2d} ')
@@ -651,21 +730,13 @@ class RenameRule(ConversionRule):
         Shell.move(source, target)
         time.sleep(0.1)
         return
-
-    def pad_float(self, num: int | str) -> str:
-        num = str(num)
-        if not re.findall(r'^\d+(\.\d+)?$', num):
-            return num
-        if num.isnumeric():
-            return num.rjust(2, '0')
-        i, f = num.split('.')
-        return i.rjust(2, '0') + '.' + f
     pass
 
 
 # give a list of conversion rules (instances) here... i'm too lazy to implement
 # a metaclass that does registers upon inheritance
 conversion_rules: list[ConversionRule] = [
+    MergerRule(),
     RenameRule(),
 ]
 
