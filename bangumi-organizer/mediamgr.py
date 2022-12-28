@@ -455,6 +455,156 @@ class Shell():
     pass
 
 
+class FFmpegExecutor():
+    def __init__(self, *args: tuple[str], show_progress=False):
+        self._args = args
+        self._show_progress = show_progress
+        self._progress_bar: tqdm.tqdm | None = None
+        self._progress: float = 0.0
+
+    def run(self) -> None:
+        # disable windowed mode, ignore crash
+        SEM_NOGPFAULTERRORBOX = 0x0002
+        CREATE_NO_WINDOW = 0x08000000
+        ctypes.windll.kernel32.SetErrorMode(SEM_NOGPFAULTERRORBOX)
+        platform_subprocess_flags = CREATE_NO_WINDOW
+        # spawn process
+        process = subprocess.Popen(
+            self._args,
+            creationflags=platform_subprocess_flags,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+        # listen for updates
+        for line in self._readlines(process):
+            # matching total duration
+            patt_duration = r'^Duration: (\d+:\d{2}:\d{2}\.\d+)'
+            match_duration = re.findall(patt_duration, line)
+            if match_duration and not self._progress_bar:
+                duration = self._duration_to_seconds(match_duration[0])
+                self._create_progress_bar(duration)
+            # matching current progress
+            patt_progress = r'^frame *= *\d+.*?time *= *(\d+:\d{2}:\d{2}\.\d+).*?x'
+            match_progress = re.findall(patt_progress, line)
+            if match_progress:
+                position = self._duration_to_seconds(match_progress[0])
+                self._write_progress(position)
+            pass
+        # finish up results
+        self._close_progress_bar()
+        return
+
+    def _readlines(self, process: subprocess.Popen
+                   ) -> Generator[str, None, None]:
+        """Sequentially read lines from the process's `stderr` handle."""
+        line_buffer = b''
+        while True:
+            ch = process.stderr.read(1)
+            # process terminated
+            if not ch:
+                break
+            # append char to buffer
+            if ch not in {b'\r', b'\n'}:
+                line_buffer += ch
+                continue
+            # line created
+            line = line_buffer.decode('utf-8', 'ignore').strip()
+            line_buffer = b''
+            if line:
+                yield line
+            pass
+        # flush buffer
+        line = line_buffer.decode('utf-8', 'ignore').strip()
+        if line:
+            yield line
+        return
+
+    def _duration_to_seconds(self, duration: str) -> float:
+        """Convert 'HH:MM:SS.zzz' format duration into seconds as a decimal."""
+        h, m, s = duration.strip().split(':')
+        return int(h) * 3600 + int(m) * 60 + float(s)
+
+    def _create_progress_bar(self, duration: float) -> None:
+        if not self._show_progress:
+            return
+        self._close_progress_bar()
+        self._progress_bar = tqdm.tqdm(total=duration, leave=False, unit='sec')
+        self._progress = 0.0
+        return
+
+    def _write_progress(self, position: float) -> None:
+        if not self._show_progress:
+            return
+        if not self._progress_bar:
+            return
+        increment = position - self._progress
+        if increment <= 0:
+            return
+        self._progress_bar.update(increment)
+        self._progress = increment
+        return
+
+    def _close_progress_bar(self) -> None:
+        if not self._show_progress:
+            return
+        if self._progress_bar:
+            self._progress_bar.close()
+            self._progress_bar = None
+        self._progress = 0.0
+        return
+    pass
+
+
+class FFmpegFinder():
+    ffmpeg_path: str | None = None
+
+    @staticmethod
+    def get() -> str:
+        """Looks up FFmpeg binary path with cache. Throws exception if no such
+        binary was found."""
+        if FFmpegFinder.ffmpeg_path is not None:
+            return FFmpegFinder.ffmpeg_path
+        FFmpegFinder.ffmpeg_path = FFmpegFinder.get_uncached()
+        if not FFmpegFinder.ffmpeg_path:
+            raise KeyError('missing ffmpeg binary')
+        return FFmpegFinder.ffmpeg_path
+
+    @staticmethod
+    def get_uncached() -> str | None:
+        """Tries to lookup for a FFmpeg binary path."""
+        # define list of known paths
+        known_paths = [
+            'ffmpeg',
+            './ffmpeg',
+            './ffmpeg.exe',
+            '/bin/ffmpeg',
+            '/usr/bin/ffmpeg',
+        ]
+        # Generate rules to lookup the binary
+        drives = [chr(ord('A') + i) for i in range(26)]  # A:/ to Z:/
+        program_dirs = [
+            'Program Files',
+            'Program Files (x86)',
+            'Programs',
+            'ProgramData',
+        ]
+        ffmpeg_dirs = [
+            'ffmpeg',
+            'FFmpeg',
+        ]
+        bin_path = 'bin/ffmpeg.exe'
+        for drive in drives:
+            for program_dir in program_dirs:
+                for ffmpeg_dir in ffmpeg_dirs:
+                    path = f'{drive}:/{program_dir}/{ffmpeg_dir}/{bin_path}'
+                    known_paths.append(path)
+        # verify for files and whether they exists
+        for path in known_paths:
+            if os.path.exists(path):
+                return path
+        return None
+    pass
+
+
 ###############################################################################
 #   Conversion logics
 
