@@ -1,12 +1,15 @@
 
+import ctypes
 import os
-import re
-import time
 import pydantic
 from pydantic import BaseModel
+import re
 import shutil
+import subprocess
+import time
 import tqdm
 import typer
+from typing import Generator
 import yaml
 
 
@@ -19,6 +22,10 @@ class SessionConfig(BaseModel):
     output_files_dir: str
     # Whether to wrap up missing files in the error output or not.
     wrap_missing_files: bool
+    # Tell conversion rules to not make changes to disk. Default to False.
+    preview_only: bool
+    # If set to True, all errors will be ignored. Default to False.
+    force_ignore_errors: bool
     pass
 
 
@@ -27,7 +34,27 @@ session_config = SessionConfig(
     source_files_dirs=[],
     output_files_dir='',
     wrap_missing_files=False,
+    preview_only=False,
+    force_ignore_errors=False,
 )
+
+
+class ProgressBar():
+    _bar: tqdm.tqdm | None = None
+
+    @staticmethod
+    def bar(replace_with: tqdm.tqdm) -> tqdm.tqdm:
+        ProgressBar._bar = replace_with
+        return ProgressBar._bar
+
+    @staticmethod
+    def print(msg: str) -> None:
+        if ProgressBar._bar:
+            ProgressBar._bar.write(msg)
+        else:
+            print(msg)
+        return
+    pass
 
 
 ###############################################################################
@@ -174,7 +201,7 @@ class ConversionHelper():
         # done
         return errors
 
-    def convert_all(self) -> tuple[int, ConvertDescriptor | None]:
+    def convert_all(self) -> Generator[tuple[int, ConvertDescriptor | None], None, None]:
         """Generator that yields [total_count, None | current_descriptor] while
         running against all of the targets."""
         # pick unique descriptors
@@ -345,13 +372,22 @@ def run_conversion() -> None:
             print(f'  - {err}')
         if has_missing_files:
             print('  - some targets are missing required dependencies.')
-        return
+        # check if user had set it to 'force run' mode
+        if not session_config.force_ignore_errors:
+            return
+        else:
+            print('WARNING: ignoring errors and performing force conversion ( )', end='')
+            for i in range(5):
+                print(f'\b\b\b({5 - i})', end='')
+                time.sleep(1.0)
+            print('')
+        pass
     # run conversion
     progress_bar: tqdm.tqdm | None = None
     for total, descriptor in helper.convert_all():
         descriptor: ConvertDescriptor
         if progress_bar is None:
-            progress_bar = tqdm.tqdm(total=total, unit='files')
+            progress_bar = ProgressBar.bar(tqdm.tqdm(total=total, unit='files'))
             continue
         # debug print conversion
         lines = [f'Converted file "{get_convert_target_fn(descriptor)}" from:']
@@ -369,12 +405,19 @@ def run_conversion() -> None:
 
 
 @cli_app.command()
-def convert(knowledge_base_yaml: str, from_files: list[str], out_dir: str, wrap_missing_files: bool = False) -> None:
+def convert(knowledge_base_yaml: str,
+            from_files: list[str],
+            out_dir: str,
+            wrap_missing_files: bool = False,
+            preview_only: bool = False,
+            force_ignore_errors: bool = False) -> None:
     global session_config
     session_config.knowledge_base_path = knowledge_base_yaml
     session_config.source_files_dirs = from_files
     session_config.output_files_dir = out_dir
     session_config.wrap_missing_files = wrap_missing_files
+    session_config.preview_only = preview_only
+    session_config.force_ignore_errors = force_ignore_errors
     run_conversion()
 
 
@@ -389,6 +432,10 @@ class Shell():
 
     @staticmethod
     def move(source: str, target: str) -> None:
+        # preview mode
+        if session_config.preview_only:
+            ProgressBar.print(f'  $ mv "{source}" "{target}"')
+            return
         # create folders on fs tree
         dir_path = os.path.dirname(target)
         os.makedirs(dir_path, exist_ok=True)
@@ -424,6 +471,7 @@ class RenameRule(ConversionRule):
                 for alt_title in bangumi.alt_titles:
                     patterns.append(f'{alt_title} - {seq_2d} ')
                     patterns.append(f'{alt_title}[{seq_2d}]')
+                    patterns.append(f'{alt_title} 第{seq_2d}集')
                 # try to pair up a match
                 match = False
                 for pattern in patterns:
