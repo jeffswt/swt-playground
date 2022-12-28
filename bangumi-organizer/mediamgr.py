@@ -213,9 +213,17 @@ class ConversionHelper():
             flagged_files.add(fn)
             rule, descriptor = records[0]
             all_records.append((rule, descriptor))
-        # ignore built targets
-        all_records = [(rule, descriptor) for rule, descriptor in all_records
-                       if not self.target_exists(descriptor)]
+        # ignore built targets & descriptor groups
+        descriptor_idx: set[ConvertDescriptor] = set()
+        filtering_records = all_records
+        all_records = []
+        for rule, descriptor in filtering_records:
+            if self.target_exists(descriptor):
+                continue
+            if repr(descriptor) in descriptor_idx:
+                continue
+            all_records.append((rule, descriptor))
+            descriptor_idx.add(repr(descriptor))
         # notify listener: found total count
         yield (len(all_records), None)
         # go through every rule
