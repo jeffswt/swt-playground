@@ -81,6 +81,11 @@ def pick_emails(driver, predicate, set_read=False) -> List[Email]:
 
     message = items.GetLast()
     while message:
+        # check message range
+        received_at = datetime.datetime.strptime(str(message.ReceivedTime), '%Y-%m-%d %H:%M:%S.%f%z').replace(tzinfo=None)
+        delta_t = (datetime.datetime.now() - received_at).total_seconds()
+        if delta_t > global_config.reboot_message_delay:
+            break
         # skip read mails
         if not message.UnRead:
             message = items.GetPrevious()
@@ -88,14 +93,10 @@ def pick_emails(driver, predicate, set_read=False) -> List[Email]:
         # convert mail
         mail = Email(
             sent_from=message.Sender.Address,
-            received_at=datetime.datetime.strptime(str(message.ReceivedTime), '%Y-%m-%d %H:%M:%S.%f%z').replace(tzinfo=None),
+            received_at=received_at,
             subject=message.Subject,
             body=message.Body,
         )
-        # we've gone too far.
-        delta_t = (datetime.datetime.now() - mail.received_at).total_seconds()
-        if delta_t > global_config.reboot_message_delay:
-            break
         # skip mails not marked as 'should pick'
         if not predicate(mail):
             message = items.GetPrevious()
