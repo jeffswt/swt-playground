@@ -1,12 +1,13 @@
 
 import argparse
 import ctypes
-from dataclasses import dataclass
 import datetime
 import enum
 import os
 import time
+from dataclasses import dataclass
 from typing import List
+
 import win32com.client
 
 
@@ -69,6 +70,24 @@ class OlDefaultFolders(enum.Enum):
     olFolderToDo = 28
     olPublicFoldersAllPublicFolders = 18
     olFolderRssFeeds = 25
+
+
+def check_alive(driver) -> None:
+    """Wait until Outlook had started."""
+    namespace = driver.GetNameSpace('MAPI')
+    retries = 0
+    log('waiting for client to start...')
+    while True:
+        time.sleep(5.0)
+        retries += 1
+        try:
+            user = namespace.CurrentUser
+        except Exception as err:
+            log(f'client has not started ({retries} retries)')
+            continue
+        log(f'client logged in as "{user}"')
+        break
+    return
 
 
 def pick_emails(driver, predicate, set_read=False) -> List[Email]:
@@ -146,6 +165,9 @@ def watchdog_service() -> None:
 
     # start outlook driver
     driver = win32com.client.Dispatch('outlook.application')
+    check_alive(driver)
+
+    # extract info
     namespace = driver.GetNameSpace('MAPI')
     mail_address = namespace.CurrentUser.Address
     smtp_address = namespace.CurrentUser.AddressEntry.GetExchangeUser().PrimarySmtpAddress
