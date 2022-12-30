@@ -5,9 +5,11 @@ Restarts your computer upon receiving some specific incoming email. The mail mus
 
 A notification will be sent back to the very account after the daemon receives your request.
 
+Log will be appended to a `rebootd.log` file at the working directory, which can be seen when the process is running in background mode (Tip: chances are that VSCode can act as a log viewer).
+
 ## Usage
 
-First install Python 3.11 (3.8 should also work) and dependencies:
+First install Python 3.11 (3.8 should also work, but is not tested) and dependencies:
 
 ```sh
 python -m pip install -r requirements.txt
@@ -40,4 +42,4 @@ To set this daemon to run at user login, simply:
 
 - Q: I have multiple accounts. Will it work?
 
-  A: It's not been tested *yet*, and we're welcome to PRs if it doesn't.
+  A: It hasn't been tested *yet*, and we're welcome to PRs if it doesn't.

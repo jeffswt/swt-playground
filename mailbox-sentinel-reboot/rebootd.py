@@ -20,8 +20,6 @@ class GlobalConfig:
     reboot_message_delay: float
     # send notification to target email
     notification_email_to: str
-    # set this to false to stop daemon
-    main_thread_running: bool
     # each loop takes around this many seconds
     loop_duration: float
     # will wait this many seconds until reboot
@@ -34,7 +32,6 @@ global_config = GlobalConfig(
     reboot_body_magic='<command_line_args>',
     reboot_message_delay=300.0,  # 5 mins
     notification_email_to='<auto_filled>',
-    main_thread_running=True,
     loop_duration=60,  # 1 min
     reboot_delay=60,  # 1 min
 )
@@ -162,6 +159,8 @@ def send_desktop_notification() -> None:
 
 def watchdog_service() -> None:
     global global_config
+    pid = os.getpid()
+    log(f'HELO: current process pid={pid}, type `taskkill /f /pid {pid}` in `cmd` to stop daemon')
 
     # start outlook driver
     driver = win32com.client.Dispatch('outlook.application')
@@ -208,12 +207,15 @@ def watchdog_service() -> None:
         force_restart()
         log(f'reboot triggered.')
         send_desktop_notification()
-        break
-    return
+    pass
 
 
 def log(message: str) -> None:
-    print(f'[{datetime.datetime.now()}] {message}')
+    line = f'[{datetime.datetime.now()}] {message}'
+    print(line)
+    with open('./rebootd.log', 'a', encoding='utf-8') as f:
+        f.write(line + '\n')
+    return
 
 
 if __name__ == '__main__':
