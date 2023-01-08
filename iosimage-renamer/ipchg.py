@@ -92,7 +92,6 @@ def convert_dir(root_path: str,
                 ts = exif_date(ts, file_path)
                 ts_dt = ts.strftime('%Y-%m-%d')
                 # get numeric order from original filename
-                print(filename)
                 img_ord_i = re.findall(r'[A-Z_](\d{4})[ .]', orig_filename)[0]
                 img_ord = f'{int(img_ord_i)}'.rjust(4, '0')
                 ts_display = ts.strftime('%Y-%m-%d')
@@ -101,6 +100,7 @@ def convert_dir(root_path: str,
             # execute transformation
             if not preview_mode:
                 target_file_path = f'{root_path}/{group_dirname}/{target_filename}'
+                print(f'"{group_dirname}/{filename}" => "{target_filename}"')
                 shutil.move(file_path, target_file_path)
             else:
                 print(f'"{group_dirname}/{filename}" => "{target_filename}"')
