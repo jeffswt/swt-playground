@@ -8,7 +8,7 @@ from typing import Generator
 from amulet.api.block import Block
 from amulet.api.selection import SelectionBox, SelectionGroup
 from amulet.api.level import BaseLevel
-from amulet.api.data_types import Dimension
+from amulet.api.data_types import ChunkCoordinates, Dimension
 import numpy
 
 
@@ -17,23 +17,33 @@ def shift_chunk_y(
 ) -> Generator[float, None, None]:
     """Align chunk sea levels and fill the lowest layers with given stones."""
 
-    min_y = options["[Source] Minimum y-level"]
-    max_y = options["[Source] Maximum y-level"]
-    sea_level_y = options["[Source] Sea level"]
-    bedrock_layer_y = options["[Source] Bedrock layer y-level"]
-    bedrock_layer_height = options["[Source] Bedrock layer height"]
+    min_y: int = options["[Source] Minimum y-level"]
+    max_y: int = options["[Source] Maximum y-level"]
+    sea_level_y: int = options["[Source] Sea level"]
+    bedrock_layer_y: int = options["[Source] Bedrock layer y-level"]
+    bedrock_layer_height: int = options["[Source] Bedrock layer height"]
     bedrock_layer_block = Block.from_snbt_blockstate(
         options["[Source] Replaces bedrock"]
     )
-    target_sea_level_y = options["[Target] Sea level"]
+    target_sea_level_y: int = options["[Target] Sea level"]
     target_fill_block = Block.from_snbt_blockstate(options["[Target] Fills with stone"])
-    target_bedrock_block = Block.from_snbt_blockstate(
+    target_bedrock_layer_height: int = options["[Target] Bedrock layer height"]
+    target_bedrock_layer_block = Block.from_snbt_blockstate(
         options["[Target] Fills with bedrock"]
     )
     target_air_block = Block.from_snbt_blockstate(options["[Target] Fills with air"])
+    transform_world: bool = options["Transform entire dimension"]
 
-    chunks = get_chunk_selections(selection, min_y, max_y)
-    for chunk_num, chunk in enumerate(chunks):
+    if not transform_world:
+        chunks = get_chunk_selections(selection)
+    else:
+        chunks = get_world_chunks(world, dimension)
+    chunk_selections = chunk_coords_to_selections(
+        world, dimension, chunks, min_y, max_y
+    )
+    print(f"Found {len(chunks)} for processing.")
+
+    for chunk_num, chunk in enumerate(chunk_selections):
         for _ in fiddle_chunk(
             world,
             dimension,
@@ -44,7 +54,8 @@ def shift_chunk_y(
             bedrock_layer_block,
             target_sea_level_y,
             target_fill_block,
-            target_bedrock_block,
+            target_bedrock_layer_height,
+            target_bedrock_layer_block,
             target_air_block,
         ):
             yield (chunk_num + _) / len(chunks)
@@ -57,9 +68,7 @@ def shift_chunk_y(
     yield 1.0
 
 
-def get_chunk_selections(
-    selection: SelectionGroup, min_y: int, max_y: int
-) -> list[SelectionBox]:
+def get_chunk_selections(selection: SelectionGroup) -> list[ChunkCoordinates]:
     """Convert selection group to a minimal list of bounding boxes that as a
     whole completely contains the current selection, and also lies within the
     provided min/max y-range."""
@@ -68,9 +77,31 @@ def get_chunk_selections(
     selection = selection.merge_boxes()
     # 2. get all the chunk locations that is a superset of this selection
     chunks = selection.chunk_locations()
+    # 3. ok
+    return list(chunks)
+
+
+def get_world_chunks(world: BaseLevel, dimension: Dimension) -> list[ChunkCoordinates]:
+    """Fetch chunks from the entire dimension."""
+
+    return list(world.all_chunk_coords(dimension))
+
+
+def chunk_coords_to_selections(
+    world: BaseLevel,
+    dimension: Dimension,
+    coords: list[ChunkCoordinates],
+    min_y: int,
+    max_y: int,
+) -> list[SelectionBox]:
+    # 1. de-duplicate coordinates
+    coords = list(set(coords))
+    # 2. check if coords are in world
+    coords = [(cx, cz) for cx, cz in coords if world.has_chunk(cx, cz, dimension)]
+
     # 3. turn chunk location into chunk boxes
     boxes: list[SelectionBox] = []
-    for cx, cz in chunks:
+    for cx, cz in coords:
         tmp = SelectionBox.create_chunk_box(cx, cz)
         min_x, min_z = tmp.min_x, tmp.min_z
         max_x, max_z = tmp.max_x, tmp.max_z
@@ -92,7 +123,8 @@ def fiddle_chunk(
     bedrock_layer_block: Block,
     target_sea_level_y: int,
     target_fill_block: Block,
-    target_bedrock_block: Block,
+    target_bedrock_layer_height: int,
+    target_bedrock_layer_block: Block,
     target_air_block: Block,
 ) -> Generator[float, None, None]:
     """Process 1 single chunk with provided parameters. Air below the original
@@ -102,6 +134,11 @@ def fiddle_chunk(
     min_x, max_x = chunk.min_x, chunk.max_x
     min_y, max_y = chunk.min_y, chunk.max_y
     min_z, max_z = chunk.min_z, chunk.max_z
+
+    # 0. never transform an empty chunk
+    if is_empty_selection(world, dimension, chunk):
+        yield 1.0
+        return
 
     # 1. replace bedrock layers to target block
     selection = SelectionBox(
@@ -137,24 +174,38 @@ def fiddle_chunk(
 
     # 3.5. fill bottom-est bedrock layer
     selection = SelectionBox((min_x, min_y, min_z), (max_x, min_y + 1, max_z))
-    fill_selection(world, dimension, selection, target_bedrock_block)
+    fill_selection(world, dimension, selection, target_bedrock_layer_block)
     yield 0.75
     # 4. randomly fill the rest of the bedrock layer(s)
-    for y_offset in range(1, bedrock_layer_height):
+    for y_offset in range(1, target_bedrock_layer_height):
         y = min_y + y_offset
-        ratio = y_offset / bedrock_layer_height
+        ratio = y_offset / target_bedrock_layer_height
         selection = SelectionBox((min_x, y, min_z), (max_x, y + 1, max_z))
         randomly_fill(
             world,
             dimension,
             selection,
-            target_bedrock_block,
+            target_bedrock_layer_block,
             1 - ratio,
             target_fill_block,
         )
         yield 0.75 + ratio * 0.25
 
     yield 1.0
+
+
+def is_empty_selection(
+    world: BaseLevel,
+    dimension: Dimension,
+    selection: SelectionBox,
+) -> bool:
+    """Check if the selection is completely empty."""
+
+    for chunk, slices, _ in world.get_chunk_slice_box(dimension, selection):
+        sub_chunk = numpy.array(chunk.blocks[slices])
+        if numpy.any(sub_chunk != 0):
+            return False
+    return True
 
 
 def replace_selection(
@@ -256,11 +307,13 @@ shift_chunk_y_options = {
     ],
     "[Target] Sea level": ["int", 62],
     "[Target] Fills with stone": ["str", 'universal_minecraft:deepslate[axis="y"]'],
+    "[Target] Bedrock layer height": ["int", 5],
     "[Target] Fills with bedrock": [
         "str",
         'universal_minecraft:bedrock[infiniburn="false"]',
     ],
     "[Target] Fills with air": ["str", "universal_minecraft:air"],
+    "Transform entire dimension": ["bool", False],
 }
 
 
