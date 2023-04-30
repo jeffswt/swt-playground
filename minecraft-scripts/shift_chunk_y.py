@@ -32,7 +32,8 @@ def shift_chunk_y(
         options["[Target] Fills with bedrock"]
     )
     target_air_block = Block.from_snbt_blockstate(options["[Target] Fills with air"])
-    transform_world: bool = options["Transform entire dimension"]
+    transform_world: bool = options["Batch: Transform entire dimension"]
+    perform_autosave: bool = options["Batch: Save while processing"]
 
     if not transform_world:
         chunks = get_chunk_selections(selection)
@@ -43,6 +44,7 @@ def shift_chunk_y(
     )
     print(f"Found {len(chunks)} for processing.")
 
+    save_interval = 256
     for chunk_num, chunk in enumerate(chunk_selections):
         for _ in fiddle_chunk(
             world,
@@ -64,6 +66,14 @@ def shift_chunk_y(
         print(
             f"Processed chunk ({chunk_x}, *, {chunk_z}), {chunk_num} of {len(chunks)}"
         )
+        if perform_autosave and chunk_num % save_interval == save_interval - 1:
+            print("Saving chunks...")
+            world.save()
+            world.purge()
+    if perform_autosave:
+        print("Saving chunks...")
+        world.save()
+        world.purge()
 
     yield 1.0
 
@@ -313,7 +323,8 @@ shift_chunk_y_options = {
         'universal_minecraft:bedrock[infiniburn="false"]',
     ],
     "[Target] Fills with air": ["str", "universal_minecraft:air"],
-    "Transform entire dimension": ["bool", False],
+    "Batch: Transform entire dimension": ["bool", False],
+    "Batch: Save while processing": ["bool", False],
 }
 
 
