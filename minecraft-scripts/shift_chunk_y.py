@@ -187,17 +187,16 @@ def fiddle_chunk(
         yield 0.25 + _ * 0.25
     yield 0.5
 
-    # CASE 1: raising sea level
-    # 3. CASE 1: fill underground air with target block
-    if delta_y > 0:
+    if min_y < bedrock_layer_y + delta_y:
+        # CASE: fill underground air with target block
         selection = SelectionBox(
-            (min_x, min_y, min_z), (max_x, bedrock_layer_y + abs(delta_y), max_z)
+            (min_x, min_y, min_z), (max_x, bedrock_layer_y + delta_y, max_z)
         )
         fill_selection(world, dimension, selection, target_fill_block)
-    elif delta_y < 0:
-        # CASE 2: dropping sea level
+    if delta_y < 0:
+        # CASE: dropping sea level, need to trim the top
         selection = SelectionBox(
-            (min_x, max_y - abs(delta_y), min_z), (max_x, max_y, max_z)
+            (min_x, max_y + delta_y, min_z), (max_x, max_y, max_z)
         )
         air_block = world.block_palette.get_add_block(target_air_block)
         fill_selection(world, dimension, selection, target_air_block)
