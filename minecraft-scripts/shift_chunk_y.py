@@ -17,8 +17,8 @@ def shift_chunk_y(
 ) -> Generator[float, None, None]:
     """Align chunk sea levels and fill the lowest layers with given stones."""
 
-    min_y: int = options["[Source] Minimum y-level"]
-    max_y: int = options["[Source] Maximum y-level"]
+    min_y: int = options["Minimum y-level"]
+    max_y: int = options["Maximum y-level"]
     sea_level_y: int = options["[Source] Sea level"]
     bedrock_layer_y: int = options["[Source] Bedrock layer y-level"]
     bedrock_layer_height: int = options["[Source] Bedrock layer height"]
@@ -33,8 +33,10 @@ def shift_chunk_y(
     )
     target_air_block = Block.from_snbt_blockstate(options["[Target] Fills with air"])
     transform_world: bool = options["Batch: Transform entire dimension"]
+    continuation_x_z: str = options["Batch: Continuation (x, z)"].strip()
     perform_autosave: bool = options["Batch: Save while processing"]
 
+    # pick chunks
     if not transform_world:
         chunks = get_chunk_selections(selection)
     else:
@@ -42,7 +44,26 @@ def shift_chunk_y(
     chunk_selections = chunk_coords_to_selections(
         world, dimension, chunks, min_y, max_y
     )
-    print(f"Found {len(chunks)} for processing.")
+    print(f"Found {len(chunk_selections)} for processing.")
+
+    # use continuation token for failure recovery
+    if continuation_x_z:
+        cont_x, cont_z = eval(continuation_x_z)
+        if cont_x % 16 != 0 or cont_z % 16 != 0:
+            raise ValueError(
+                "continuation token must be northwest (-X, -Z) corner of a chunk"
+            )
+        tmp: list[SelectionBox] = []
+        for chunk in chunk_selections:
+            if chunk.min_x < cont_x:
+                continue
+            if chunk.min_x == cont_x and chunk.min_z < cont_z:
+                continue
+            tmp.append(chunk)
+        print(
+            f"Applied continuation token ({cont_x}, *, {cont_z}), resuming at {len(tmp)} / {len(chunk_selections)}."
+        )
+        chunk_selections = tmp
 
     save_interval = 256
     for chunk_num, chunk in enumerate(chunk_selections):
@@ -60,11 +81,11 @@ def shift_chunk_y(
             target_bedrock_layer_block,
             target_air_block,
         ):
-            yield (chunk_num + _) / len(chunks)
+            yield (chunk_num + _) / len(chunk_selections)
         # debug print
         chunk_x, chunk_z = chunk.min_x, chunk.min_z
         print(
-            f"Processed chunk ({chunk_x}, *, {chunk_z}), {chunk_num} of {len(chunks)}"
+            f"Processed chunk ({chunk_x}, *, {chunk_z}), {chunk_num} of {len(chunk_selections)}"
         )
         if perform_autosave and chunk_num % save_interval == save_interval - 1:
             print("Saving chunks...")
@@ -306,8 +327,8 @@ def randomly_fill(
 
 shift_chunk_y_options = {
     "Chunk y-level Shifter": ["label"],
-    "[Source] Minimum y-level": ["int", -64],
-    "[Source] Maximum y-level": ["int", 320],
+    "Minimum y-level": ["int", -64],
+    "Maximum y-level": ["int", 320],
     "[Source] Sea level": ["int", 62],
     "[Source] Bedrock layer y-level": ["int", -64],
     "[Source] Bedrock layer height": ["int", 5],
@@ -324,6 +345,7 @@ shift_chunk_y_options = {
     ],
     "[Target] Fills with air": ["str", "universal_minecraft:air"],
     "Batch: Transform entire dimension": ["bool", False],
+    "Batch: Continuation (x, z)": ["str", ""],
     "Batch: Save while processing": ["bool", False],
 }
 
