@@ -10,8 +10,11 @@
   ],
   "words": [
     "exif",
+    "exifread",
     "piexif",
     "pydantic",
-    "pyheif"
+    "pyheif",
+    "tqdm",
+    "typer"
   ]
 }
