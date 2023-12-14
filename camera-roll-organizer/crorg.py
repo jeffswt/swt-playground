@@ -235,7 +235,7 @@ def _convert(
         # plan
         plans.append((old_path, new_path))
         bar.write(
-            f"convert: {_path_rel_to(old_path, root_path)} -> {_path_rel_to(new_path, root_path)}"
+            f"convert: {_path_rel_to(old_path, root_path)} -> {new_path.name}"
         )
     bar.close()
 
