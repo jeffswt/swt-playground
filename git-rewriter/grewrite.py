@@ -37,15 +37,74 @@ class GitCommit(pydantic.BaseModel):
 class GitHistory(pydantic.BaseModel):
     """A Git history."""
 
+    path: str
+    """Absolute path of the repo."""
     head: str
     """HEAD pointer, may be commit hash or ref name."""
+    head_hash: str
+    """HEAD commit hash."""
+
     commits: List[GitCommit]
 
     pass
 
 
 def _parse_git_history(repo: pathlib.Path, end_hash: str) -> GitHistory:
-    return
+    head = __get_repo_head(repo)
+    head_hash = __parse_git_rev_as_hash(repo, head)
+    commits_raw = __get_raw_git_logs(repo, end_hash)
+    commits = [__parse_raw_git_commit(i) for i in __split_raw_git_logs(commits_raw)]
+    return GitHistory(
+        path=str(repo.resolve()),
+        head=head,
+        head_hash=head_hash,
+        commits=commits,
+    )
+
+
+def __get_repo_head(repo: pathlib.Path) -> str:
+    # know current HEAD and ensure it's clean
+    proc = subprocess.Popen(
+        args=["git", "status"],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+    )
+    if not proc.stdout:
+        raise RuntimeError("cannot get repo status")
+    stdout = proc.stdout.read()
+    lines = stdout.decode("utf-8", "ignore").splitlines()
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError("failed to get repo status")
+
+    # parse HEAD
+    flag_head = "HEAD detached at "
+    flag_branch = "On branch "
+    flag_clean = "nothing to commit, working tree clean"
+
+    if not any(line.startswith(flag_clean) for line in lines):
+        raise RuntimeError("working tree is not clean")
+    if lines[0].startswith(flag_head):
+        return lines[0][len(flag_head) :]
+    if lines[0].startswith(flag_branch):
+        return lines[0][len(flag_branch) :]
+    raise RuntimeError("cannot parse repo status")
+
+
+def __parse_git_rev_as_hash(repo: pathlib.Path, rev: str) -> str:
+    proc = subprocess.Popen(
+        args=["git", "rev-parse", rev],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+    )
+    if not proc.stdout:
+        raise RuntimeError("cannot perform rev-parse")
+    stdout = proc.stdout.read()
+    proc.wait()
+    the_hash = stdout.decode("utf-8", "ignore").strip()
+    if len(the_hash) != 40:
+        raise RuntimeError("cannot parse rev-parse")
+    return the_hash
 
 
 def __get_raw_git_logs(repo: pathlib.Path, end_hash: str) -> str:
@@ -147,11 +206,25 @@ def __parse_raw_git_commit(lines: List[str]) -> GitCommit:
     )
 
 
+def _git_checkout(repo: pathlib.Path, ref: str) -> None:
+    proc = subprocess.Popen(
+        args=["git", "checkout", ref],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+    )
+    if not proc.stdout:
+        raise RuntimeError("cannot checkout")
+    stdout = proc.stdout.read()
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(f"failed to checkout: {proc.returncode}")
+    return
+
+
 ###############################################################################
 #   main
 
+
 if __name__ == "__main__":
-    x = __get_raw_git_logs(pathlib.Path("."), "HEAD")
-    for i in __split_raw_git_logs(x):
-        print(__parse_raw_git_commit(i))
+    print(_parse_git_history(pathlib.Path("."), "HEAD").path)
     pass
