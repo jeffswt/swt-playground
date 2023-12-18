@@ -289,23 +289,24 @@ class ReCommitRule(pydantic.BaseModel):
     pass
 
 
-class PruneRule(pydantic.BaseModel):
-    """Remove children of directories (except for some) in the target
-    repository during the process. prune rules are guaranteed to be executed in
-    the order they are specified."""
+class CloneRule(pydantic.BaseModel):
+    """Clone items and re-link them under a same parent directory."""
 
-    kind: Literal["prune"] = "prune"
+    kind: Literal["clone"] = "clone"
 
     pattern: str
-    """Glob pattern to match **directories** being pruned. The path must be
-    relative to the source repository root. Non-directories are skipped. The
-    directory itself will not be removed, but that all files and subdirectories
-    under which that are not matched by `skip_children` will be removed."""
+    """Glob pattern matching files or directories to be cloned. Path relative
+    to the source repository root."""
 
-    skip_children: list[str]
-    """When a directory is matched, this field specifies the glob pattern(s) of
-    direct children that should not be removed. The path must be relative to
-    every matched directory (by `pattern`)."""
+    target: str
+    """Target directory, relative to the target repository root. All cloned
+    files will be placed **under** this directory."""
+
+    rename: str | None = None
+    """Regular expression pattern matching whichever files to be renamed. This
+    will only match the 'filename' part and not the whole path."""
+    rename_sub: str | None = None
+    """Substitution pattern for renaming. Effective only with `rename`."""
 
     pass
 
@@ -316,14 +317,14 @@ class RemoveRule(pydantic.BaseModel):
 
     kind: Literal["remove"] = "remove"
 
-    patterns: list[str]
-    """Glob patterns that match files or directories to be removed. The path
-    must be relative to the source repository root."""
+    pattern: str
+    """Glob pattern matching files or directories to be removed. The path must
+    be relative to the source repository root."""
 
     pass
 
 
-MutationRule = FilterRule | ReCommitRule | PruneRule | RemoveRule
+MutationRule = FilterRule | ReCommitRule | CloneRule | RemoveRule
 
 
 class CommitDef(pydantic.BaseModel):
@@ -519,33 +520,19 @@ def __rule_exec_recommit(rule: ReCommitRule, commit: GitCommit) -> GitCommit:
     )
 
 
-def __rule_exec_prune(rule: PruneRule, target: pathlib.Path) -> None:
-    removing = list[pathlib.Path]()
-    for g in target.glob(__rule_make_path_relative(rule.pattern)):
-        path = target / g
-        if not path.is_dir():
-            continue
-        # which will be kept
-        keeping = list[pathlib.Path]()
-        for skipping in rule.skip_children:
-            for k in path.glob(__rule_make_path_relative(skipping)):
-                keeping.append(k)
-        # which will be removed
-        will_remove = set(path.iterdir()) - set(keeping)
-        if will_remove:
-            removing.extend(will_remove)
-        else:
-            removing.append(path)
-    for r in removing:
-        shutil.rmtree(r, ignore_errors=True)
+def __rule_exec_clone(rule: CloneRule, source: pathlib.Path, target: pathlib.Path) -> None:
+    for g in source.glob(__rule_make_path_relative(rule.pattern)):
+        fn = g.name
+        if rule.rename is not None:
+            fn = __rule_sub(rule.rename, rule.rename_sub, fn)
+        shutil.copytree(source / g, target / rule.target / fn)
     return
 
 
 def __rule_exec_remove(rule: RemoveRule, target: pathlib.Path) -> None:
     removing = list[pathlib.Path]()
-    for g in rule.patterns:
-        for r in target.glob(__rule_make_path_relative(g)):
-            removing.append(r)
+    for r in target.glob(__rule_make_path_relative(rule.pattern)):
+        removing.append(r)
     for r in removing:
         shutil.rmtree(r, ignore_errors=True)
     return
