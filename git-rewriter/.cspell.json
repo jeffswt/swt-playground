@@ -1,0 +1,16 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "dictionaries": [
+    "softwareTerms",
+    "misc",
+    "python",
+    "bash",
+    "filetypes"
+  ],
+  "words": [
+    "pydantic",
+    "tqdm",
+    "typer"
+  ]
+}
