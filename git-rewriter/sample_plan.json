@@ -1,0 +1,42 @@
+{
+  "source": "~/my_own_repo/",
+  "target": "~/upstream_repo/",
+  "chains": [
+    {
+      // copies all commits from `master` on the source repo and:
+      // create branch `new-feature` based on `main` branch on target
+      "name": "new-feature",
+      "begin": {
+        "source": null,
+        "target": "main"
+      },
+      "end": "master"
+    }
+  ],
+  "rules": [
+    // pick only feature commits
+    {
+      "kind": "filter",
+      "msg_subject": "^feat\\("
+    },
+    // label all feature commits as breaking
+    {
+      "kind": "recommit",
+      "msg_subject": "^feat\\(",
+      "msg_subject_sub": "feat!("
+    },
+    // mv ~/my_own_repo/src/personal/new-feature/ ~/upstream_repo/_feature
+    {
+      "kind": "clone",
+      "from": "/src/personal/new-feature",
+      "to": "/",
+      "rename": "^new-",
+      "rename_sub": "_"
+    },
+    // remove all .o files
+    {
+      "kind": "remove",
+      "pattern": "/_feature/*.o"
+    }
+  ]
+}
