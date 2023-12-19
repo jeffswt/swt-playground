@@ -250,6 +250,22 @@ def __git_rev_parse(repo: pathlib.Path, rev: CommitHash | CommitRef) -> CommitHa
     return the_hash
 
 
+def __sh_copy(src: pathlib.Path, dst: pathlib.Path) -> None:
+    if src.is_dir():
+        shutil.copytree(src, dst)
+    else:
+        shutil.copy(src, dst)
+    return
+
+
+def __sh_remove(path: pathlib.Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        path.unlink()
+    return
+
+
 ###############################################################################
 #   mutation plan
 
@@ -318,9 +334,9 @@ class CloneRule(pydantic.BaseModel):
 
     kind: Literal["clone"] = "clone"
 
-    from_: str = pydantic.Field(..., alias="from")
-    """Glob pattern matching files or directories to be cloned. Path relative
-    to the source repository root."""
+    from_: str | list[str] = pydantic.Field(..., alias="from")
+    """Glob pattern(s) matching files or directories to be cloned. Path
+    relative to the source repository root."""
 
     exclude: str | None = None
     """Exclude these entries during copying. This is a regular expression
@@ -337,6 +353,10 @@ class CloneRule(pydantic.BaseModel):
     rename_sub: str | None = None
     """Substitution pattern for renaming. Effective only with `rename`."""
 
+    overwrite: bool = False
+    """Overwrite existing files or directories in the target repository. Folders
+    are not merged if names conflict."""
+
     pass
 
 
@@ -346,9 +366,9 @@ class RemoveRule(pydantic.BaseModel):
 
     kind: Literal["remove"] = "remove"
 
-    pattern: str
-    """Glob pattern matching files or directories to be removed. The path must
-    be relative to the source repository root."""
+    pattern: str | list[str]
+    """Glob pattern(s) matching files or directories to be removed. The path
+    must be relative to the source repository root."""
 
     pass
 
@@ -516,10 +536,7 @@ def __attach_commit(
     for f in dst_path.iterdir():
         if f.name == ".git":
             continue
-        if f.is_dir():
-            shutil.rmtree(f, ignore_errors=True)
-        else:
-            f.unlink()
+        __sh_remove(f)
 
     # apply rules in order
     should_commit = True
@@ -698,30 +715,38 @@ def __rule_exec_recommit(rule: ReCommitRule, commit: GitCommit) -> GitCommit:
 def __rule_exec_clone(
     rule: CloneRule, source: pathlib.Path, target: pathlib.Path
 ) -> None:
-    from_ = __rule_make_path_relative(rule.from_)
     to_ = __rule_make_path_relative(rule.to)
     exclude_ = re.compile(rule.exclude) if rule.exclude else None
     os.makedirs(target / to_, exist_ok=True)
 
-    for g in source.glob(from_):
-        fn = g.name
-        str_path = '/' + str(g).replace('\\', '/').lstrip('/')
-        if exclude_ is not None and exclude_.match(str_path):
-            continue
+    for from_raw_ in (rule.from_ if isinstance(rule.from_, list) else [rule.from_]):
+        from_ = __rule_make_path_relative(from_raw_)
+        for g in source.glob(from_):
+            fn = g.name
+            str_path = '/' + str(g).replace('\\', '/').lstrip('/')
+            if exclude_ is not None and exclude_.match(str_path):
+                continue
 
-        if rule.rename is not None:
-            fn = __rule_sub(rule.rename, rule.rename_sub, fn)
-        shutil.copytree(source / g, target / to_ / fn)
+            if rule.rename is not None:
+                fn = __rule_sub(rule.rename, rule.rename_sub, fn)
+            # deal with overwrite
+            __a, __b = source / g, target / to_ / fn
+            if rule.overwrite:
+                if __b.exists():
+                    __sh_remove(__b)
+                __sh_copy(__a, __b)
+            else:
+                if not __b.exists():
+                    __sh_copy(__a, __b)
+            pass
     return
 
 
 def __rule_exec_remove(rule: RemoveRule, target: pathlib.Path) -> None:
-    pattern_ = __rule_make_path_relative(rule.pattern)
-    for r in target.glob(pattern_):
-        if r.is_dir():
-            shutil.rmtree(r, ignore_errors=True)
-        else:
-            r.unlink()
+    for pattern_raw_ in (rule.pattern if isinstance(rule.pattern, list) else [rule.pattern]):
+        pattern_ = __rule_make_path_relative(pattern_raw_)
+        for r in target.glob(pattern_):
+            __sh_remove(r)
     return
 
 
@@ -776,8 +801,14 @@ def rewrite(
     """Rewrite a git repository according to the mutation plan."""
 
     with open(plan, "r") as f:
-        plan_raw = json.loads(f.read())
-        plan_j = MutationPlan(**plan_raw)
+        # load json with comments
+        raw = f.read()
+        raw = raw.split('\n')
+        raw = [i for i in raw if not i.strip().startswith('//')]
+        raw = '\n'.join(raw)
+        raw = json.loads(raw)
+
+    plan_j = MutationPlan(**raw)
     git_rewrite(plan_j)
     return
 

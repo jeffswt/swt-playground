@@ -25,10 +25,14 @@
       "msg_subject": "^feat\\(",
       "msg_subject_sub": "feat!("
     },
-    // mv ~/my_own_repo/src/personal/new-feature/ ~/upstream_repo/_feature
+    // mv ~/my_own_repo/src/personal/new-feature-1/ ~/upstream_repo/_feature-1
+    // mv ~/my_own_repo/src/personal/new-feature-2/ ~/upstream_repo/_feature-2
     {
       "kind": "clone",
-      "from": "/src/personal/new-feature",
+      "from": [
+        "/src/personal/new-feature-1",
+        "/src/personal/new-feature-2"
+      ],
       "to": "/",
       "rename": "^new-",
       "rename_sub": "_"
@@ -36,7 +40,10 @@
     // remove all .o files
     {
       "kind": "remove",
-      "pattern": "/_feature/*.o"
+      "pattern": [
+        "/_feature-1/*.o",
+        "/_feature-2/*.o"
+      ]
     }
   ]
 }
