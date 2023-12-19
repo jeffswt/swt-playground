@@ -66,6 +66,7 @@ def _fetch_exif_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
     # parse datetime
     try:
         dt_s = dt_b.values
+        dt_s = re.sub(r"(am|pm)$", "", dt_s)  # whoever created this crap
         dt = datetime.datetime.strptime(dt_s, "%Y:%m:%d %H:%M:%S")
     except Exception as err:
         raise RuntimeError(f"invalid timestamp '{dt_b}' in exif: {path}")
@@ -77,9 +78,9 @@ def _fetch_exif_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
 
 
 def _fetch_metadata(path: pathlib.Path) -> MediaMetadata:
-    img_exts = {".jpg", ".jpeg", ".bmp", ".png", ".heic", ".heif"}
+    exif_exts = {".jpg", ".jpeg", ".bmp", ".png", ".heic", ".heif", ".mov"}
     metadata = _fetch_fs_metadata(path)
-    if path.suffix.lower() in img_exts:
+    if path.suffix.lower() in exif_exts:
         metadata = _fetch_exif_metadata(path) or metadata
     return metadata
 
@@ -227,22 +228,20 @@ def _convert(
         # parse
         components = from_fns.pattern(old_path)
         if not components:
-            bar.write(f"  - skip {_path_rel_to(old_path, root_path)}")
+            bar.write(f"  - skip {_path_rel_to(old_path, root_path)}", end="\r")
             continue
         # format
         new_fn = to_fns.format(components)
         new_path = old_path.parent / new_fn
         # plan
         plans.append((old_path, new_path))
-        bar.write(
-            f"convert: {_path_rel_to(old_path, root_path)} -> {new_path.name}"
-        )
+        bar.write(f"convert: {_path_rel_to(old_path, root_path)} -> {new_path.name}")
     bar.close()
 
     if not apply:
         return
     bar = tqdm.tqdm(plans, desc="committing changes")
-    for path, new_path in plans:
+    for path, new_path in bar:
         path.rename(new_path)
     bar.close()
     return
