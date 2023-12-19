@@ -1,5 +1,6 @@
 import datetime
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -320,6 +321,11 @@ class CloneRule(pydantic.BaseModel):
     from_: str = pydantic.Field(..., alias="from")
     """Glob pattern matching files or directories to be cloned. Path relative
     to the source repository root."""
+
+    exclude: str | None = None
+    """Exclude these entries during copying. This is a regular expression
+    matching the whole path relative to the source repository root, starting
+    with a slash (e.g. `/relative/path/to/excluded/file`)."""
 
     to: str
     """Target directory, relative to the target repository root. All cloned
@@ -694,8 +700,15 @@ def __rule_exec_clone(
 ) -> None:
     from_ = __rule_make_path_relative(rule.from_)
     to_ = __rule_make_path_relative(rule.to)
+    exclude_ = re.compile(rule.exclude) if rule.exclude else None
+    os.makedirs(target / to_, exist_ok=True)
+
     for g in source.glob(from_):
         fn = g.name
+        str_path = '/' + str(g).replace('\\', '/').lstrip('/')
+        if exclude_ is not None and exclude_.match(str_path):
+            continue
+
         if rule.rename is not None:
             fn = __rule_sub(rule.rename, rule.rename_sub, fn)
         shutil.copytree(source / g, target / to_ / fn)
