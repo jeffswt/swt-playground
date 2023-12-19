@@ -1,5 +1,5 @@
 import datetime
-import glob
+import json
 import pathlib
 import re
 import shutil
@@ -7,7 +7,26 @@ import subprocess
 from typing import Callable, Iterable, Literal
 
 import pydantic
+import tqdm
 import typer
+
+
+__all__ = [
+    # rules
+    "FilterRule",
+    "ReCommitRule",
+    "CloneRule",
+    "RemoveRule",
+    "MutationRule",
+    # plan
+    "CommitHash",
+    "CommitRef",
+    "CommitDef",
+    "CommitChain",
+    "MutationPlan",
+    # using
+    "git_rewrite",
+]
 
 
 ###############################################################################
@@ -16,6 +35,8 @@ import typer
 
 CommitHash = str
 
+CommitRef = str
+
 
 class GitCommit(pydantic.BaseModel):
     """A Git commit."""
@@ -23,7 +44,7 @@ class GitCommit(pydantic.BaseModel):
     # tree structure
     hash: CommitHash
     is_head: bool
-    refs: list[str]
+    refs: list[CommitRef]
     tags: list[str]
 
     # metadata
@@ -42,32 +63,22 @@ class GitCommit(pydantic.BaseModel):
 class GitHistory(pydantic.BaseModel):
     """A Git history."""
 
-    path: str
-    """Absolute path of the repo."""
-    head: str
-    """HEAD pointer, may be commit hash or ref name."""
-    head_hash: CommitHash
-    """HEAD commit hash."""
-
     commits: list[GitCommit]
 
     pass
 
 
-def _parse_git_history(repo: pathlib.Path, end_hash: CommitHash) -> GitHistory:
-    head = __get_repo_head(repo)
-    head_hash = __parse_git_rev_as_hash(repo, head)
-    commits_raw = __get_raw_git_logs(repo, end_hash)
+def __parse_git_history(
+    repo: pathlib.Path, begin_hash: CommitHash | None, end_hash: CommitHash
+) -> GitHistory:
+    commits_raw = __get_raw_git_logs(repo, begin_hash, end_hash)
     commits = [__parse_raw_git_commit(i) for i in __split_raw_git_logs(commits_raw)]
     return GitHistory(
-        path=str(repo.resolve()),
-        head=head,
-        head_hash=head_hash,
         commits=commits,
     )
 
 
-def __get_repo_head(repo: pathlib.Path) -> str:
+def __git_get_head(repo: pathlib.Path) -> str:
     # know current HEAD and ensure it's clean
     proc = subprocess.Popen(
         args=["git", "status"],
@@ -96,23 +107,9 @@ def __get_repo_head(repo: pathlib.Path) -> str:
     raise RuntimeError("cannot parse repo status")
 
 
-def __parse_git_rev_as_hash(repo: pathlib.Path, rev: str) -> str:
-    proc = subprocess.Popen(
-        args=["git", "rev-parse", rev],
-        cwd=repo,
-        stdout=subprocess.PIPE,
-    )
-    if not proc.stdout:
-        raise RuntimeError("cannot perform rev-parse")
-    stdout = proc.stdout.read()
-    proc.wait()
-    the_hash = stdout.decode("utf-8", "ignore").strip()
-    if len(the_hash) != 40:
-        raise RuntimeError("cannot parse rev-parse")
-    return the_hash
-
-
-def __get_raw_git_logs(repo: pathlib.Path, end_hash: CommitHash) -> str:
+def __get_raw_git_logs(
+    repo: pathlib.Path, begin_hash: CommitHash | None, end_hash: CommitHash
+) -> str:
     fmt_rule = (
         "--pretty=format:"
         "commit %H\n"
@@ -126,6 +123,7 @@ def __get_raw_git_logs(repo: pathlib.Path, end_hash: CommitHash) -> str:
         "message %B\n"
         "end-of-commit %H\n\n"
     )
+    range = f"{begin_hash}..{end_hash}" if begin_hash else end_hash
     proc = subprocess.Popen(
         args=["git", "log", end_hash, fmt_rule],
         cwd=repo,
@@ -211,19 +209,42 @@ def __parse_raw_git_commit(lines: list[str]) -> GitCommit:
     )
 
 
-def _git_checkout(repo: pathlib.Path, ref: str) -> None:
+def __git(*args: str, repo: pathlib.Path = None, ignore_errors: bool = False) -> None:  # type: ignore
+    if not repo:
+        raise RuntimeError("repo path must be provided")
     proc = subprocess.Popen(
-        args=["git", "checkout", ref],
+        args=["git"] + list(args),
         cwd=repo,
         stdout=subprocess.PIPE,
     )
     if not proc.stdout:
-        raise RuntimeError("cannot checkout")
+        raise RuntimeError(f"failed to run git command: {args}")
     stdout = proc.stdout.read()
     proc.wait()
-    if proc.returncode != 0:
-        raise RuntimeError(f"failed to checkout: {proc.returncode}")
+    if proc.returncode != 0 and not ignore_errors:
+        raise RuntimeError(
+            f"failed to run git command: {args} (return code {proc.returncode})"
+        )
     return
+
+
+def __git_rev_parse(repo: pathlib.Path, rev: CommitHash | CommitRef) -> CommitHash:
+    if len(rev) == 40 and all(c in "0123456789abcdef" for c in rev):
+        return rev
+
+    proc = subprocess.Popen(
+        args=["git", "rev-parse", rev],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+    )
+    if not proc.stdout:
+        raise RuntimeError("cannot perform rev-parse")
+    stdout = proc.stdout.read()
+    proc.wait()
+    the_hash = stdout.decode("utf-8", "ignore").strip()
+    if len(the_hash) != 40:
+        raise RuntimeError("cannot parse rev-parse")
+    return the_hash
 
 
 ###############################################################################
@@ -333,27 +354,31 @@ class CommitDef(pydantic.BaseModel):
     performing a 'rewrite migration' against a partially migrated repository.
     When the new repository is empty, this field is not at all useful."""
 
-    source: CommitHash
+    source: CommitHash | CommitRef
     """Source commit hash."""
 
-    target: CommitHash
+    target: CommitHash | CommitRef
     """Target commit hash."""
 
     pass
 
 
 class CommitChain(pydantic.BaseModel):
-    """Describe such a chain of commits in the source repository that shall be
-    mutated and thus cloned to the target repository."""
+    """Describe such a chain of commits (branch) in the source repository that
+    shall be mutated and thus cloned to the target repository."""
 
-    begin: CommitHash | CommitDef | None
-    """The (chronologically) earliest non-occurring commit (exclusive) in the
-    chain. This may be viewed as the base or root commit of the mutation. If
-    `None` is set, the chain will be considered as a 'dangling' chain where
+    name: CommitRef
+    """Branch name."""
+
+    begin: CommitHash | CommitRef | CommitDef | None
+    """The (chronologically) earliest non-occurring commit / ref (exclusive) in
+    the chain. This may be viewed as the base or root commit of the mutation.
+    If `None` is set, the chain will be considered as a 'dangling' chain where
     root is NIL."""
 
-    end: CommitHash | None
-    """The (chronologically) last occurring commit (inclusive) in the chain."""
+    end: CommitHash | CommitRef
+    """The (chronologically) last occurring commit / ref (inclusive) in the
+    chain."""
 
     pass
 
@@ -381,14 +406,119 @@ class MutationPlan(pydantic.BaseModel):
 #   mutation implementation
 
 
-def __apply_rule(
-    rule: MutationRule,
+def __mutate_repo(
+    rules: list[MutationRule],
+    chains: list[CommitChain],
     src_path: pathlib.Path,
-    src_parent: CommitHash | None,
+    dst_path: pathlib.Path,
+) -> None:
+    """Mutate the repository according to the plan."""
+
+    # ref / hash -> hash lookup table
+    refs = dict[CommitRef | CommitHash, CommitHash]()
+    # { [src_commit_hash]: dst_commit_hash }
+    # stores a relation between source and target commits
+    parents = dict[CommitHash, CommitHash | None]()
+    # (src_commit, src_parent_hash, dst_parent_hash, dst_branch)[]
+    # stores the mutation plan, in dfs order
+    plan = list[tuple[GitCommit, CommitHash | None, CommitHash | None, CommitRef]]()
+
+    def _as_hash(ref: CommitRef | CommitHash) -> CommitHash:
+        if ref not in refs:
+            refs[ref] = __git_rev_parse(src_path, ref)
+        return refs[ref]
+
+    for chain in chains:
+        if chain.begin is None:
+            begin = None
+        elif isinstance(chain.begin, CommitDef):
+            begin = _as_hash(chain.begin.source)
+        else:
+            begin = _as_hash(chain.begin)
+        end = _as_hash(chain.end)
+        history = __parse_git_history(src_path, begin, end)
+        # insert commits
+        for i, commit in enumerate(history.commits):
+            src_commit = commit
+            src_parent_hash = None if i == 0 else history.commits[i - 1].hash
+            dst_parent_hash = None
+            if i == 0 and isinstance(chain.begin, CommitDef):
+                dst_parent_hash = _as_hash(chain.begin.target)
+            dst_branch = chain.name
+            plan.append((src_commit, src_parent_hash, dst_parent_hash, dst_branch))
+        pass
+
+    plan_ = tqdm.tqdm(plan, desc="Cloning repository")
+    for src_commit, src_parent, dst_parent, dst_branch in plan_:
+        if src_parent in parents:
+            dst_parent = parents[src_parent]
+        n_commit, n_hash = __attach_commit(
+            rules,
+            src_path,
+            src_commit.hash,
+            src_commit,
+            dst_path,
+            dst_parent,
+            dst_branch,
+        )
+        if n_commit is not None:
+            plan_.write(f"{n_commit.hash[:8]} {n_commit.msg_subject}")
+        parents[src_commit.hash] = n_hash
+    plan_.close()
+
+    return
+
+
+def __attach_commit(
+    rules: list[MutationRule],
+    src_path: pathlib.Path,
+    src_current: CommitHash,
+    src_commit: GitCommit,
     dst_path: pathlib.Path,
     dst_parent: CommitHash | None,
-) -> CommitHash | None:
-    return
+    dst_branch: str,
+) -> tuple[GitCommit | None, CommitHash | None]:
+    """Mutate and clone commit to the target. Produces the new commit and its
+    commit hash. They may be attached to the next `dst_parent` commit."""
+
+    # locate source -- current source commit is always available
+    __git("checkout", src_current, repo=src_path)
+
+    # locate target -- if parent is None, then this is the new orphaned root
+    if dst_parent is not None:
+        __git("checkout", dst_parent, repo=dst_path)
+    else:
+        __git("branch", "-D", dst_branch, repo=dst_path, ignore_errors=True)
+        __git("checkout", "--orphan", dst_branch, repo=dst_path)
+        __git("reset", "--hard", repo=dst_path)
+
+    # apply rules in order
+    should_commit = True
+    dst_commit = src_commit
+
+    for rule in rules:
+        if rule.kind == "filter":
+            if not __rule_exec_filter(rule, dst_commit):
+                should_commit = False
+                break
+        elif rule.kind == "recommit":
+            dst_commit = __rule_exec_recommit(rule, dst_commit)
+        elif rule.kind == "clone":
+            __rule_exec_clone(rule, src_path, dst_path)
+        elif rule.kind == "remove":
+            __rule_exec_remove(rule, dst_path)
+        pass
+
+    # commit if necessary
+    if should_commit:
+        __git("add", "-A", ".", repo=dst_path)
+        message = (dst_commit.msg_subject + "\n\n" + dst_commit.msg_body).strip()
+        __git("commit", "-m", message, repo=dst_path)
+        head = __git_get_head(dst_path)
+        for tag in dst_commit.tags:
+            __git("tag", "-a", tag, head, repo=dst_path)
+        return dst_commit, head
+    return None, dst_parent
 
 
 def __rule_exec_filter(rule: FilterRule, commit: GitCommit) -> bool:
@@ -520,7 +650,9 @@ def __rule_exec_recommit(rule: ReCommitRule, commit: GitCommit) -> GitCommit:
     )
 
 
-def __rule_exec_clone(rule: CloneRule, source: pathlib.Path, target: pathlib.Path) -> None:
+def __rule_exec_clone(
+    rule: CloneRule, source: pathlib.Path, target: pathlib.Path
+) -> None:
     for g in source.glob(__rule_make_path_relative(rule.pattern)):
         fn = g.name
         if rule.rename is not None:
@@ -555,9 +687,43 @@ def __rule_make_path_relative(pattern: str) -> str:
 
 
 ###############################################################################
-#   main
+#   wrappers & cli
+
+
+def git_rewrite(plan: MutationPlan) -> None:
+    """Rewrite a git repository according to the mutation plan."""
+
+    src_path = pathlib.Path(plan.source)
+    dst_path = pathlib.Path(plan.target)
+    _src_head = __git_get_head(src_path)
+    _dst_head = __git_get_head(dst_path)
+
+    __mutate_repo(plan.rules, plan.chain, src_path, dst_path)
+    return
+
+
+app = typer.Typer()
+
+
+@app.command()
+def rewrite(
+    plan: pathlib.Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+    ),
+) -> None:
+    """Rewrite a git repository according to the mutation plan."""
+
+    with open(plan, "r") as f:
+        plan_raw = json.loads(f.read())
+        plan_j = MutationPlan(**plan_raw)
+    git_rewrite(plan_j)
+    return
 
 
 if __name__ == "__main__":
-    print(_parse_git_history(pathlib.Path("."), "HEAD").path)
-    pass
+    app()
