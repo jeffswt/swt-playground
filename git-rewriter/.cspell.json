@@ -9,6 +9,7 @@
     "filetypes"
   ],
   "words": [
+    "grewrite",
     "pydantic",
     "tqdm",
     "typer"

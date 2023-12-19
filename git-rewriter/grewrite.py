@@ -452,8 +452,13 @@ def __mutate_repo(
 
     plan_ = tqdm.tqdm(plan, desc="Cloning repository")
     for src_commit, src_parent, dst_parent, dst_branch in plan_:
+        # we skip commits that have already been attached
+        if src_commit.hash in parents:
+            continue
+        # force resolve parent hash if it was generated during this run
         if src_parent in parents:
             dst_parent = parents[src_parent]
+        # then attach commit
         n_commit, n_hash = __attach_commit(
             rules,
             src_path,
