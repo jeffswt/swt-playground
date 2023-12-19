@@ -96,7 +96,7 @@ def __git_get_head(repo: pathlib.Path) -> str:
     # parse HEAD
     flag_head = "HEAD detached at "
     flag_branch = "On branch "
-    flag_clean = "nothing to commit, working tree clean"
+    flag_clean = "nothing to commit"
 
     if not any(line.startswith(flag_clean) for line in lines):
         raise RuntimeError("working tree is not clean")
@@ -125,7 +125,7 @@ def __get_raw_git_logs(
     )
     range = f"{begin_hash}..{end_hash}" if begin_hash else end_hash
     proc = subprocess.Popen(
-        args=["git", "log", end_hash, fmt_rule],
+        args=["git", "log", end_hash, fmt_rule, "--reverse"],
         cwd=repo,
         stdout=subprocess.PIPE,
     )
@@ -209,23 +209,25 @@ def __parse_raw_git_commit(lines: list[str]) -> GitCommit:
     )
 
 
-def __git(*args: str, repo: pathlib.Path = None, ignore_errors: bool = False) -> None:  # type: ignore
+def __git(*args: str, repo: pathlib.Path = None, ignore_errors: bool = False) -> tuple[str, str]:  # type: ignore
     if not repo:
         raise RuntimeError("repo path must be provided")
     proc = subprocess.Popen(
         args=["git"] + list(args),
         cwd=repo,
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
-    if not proc.stdout:
+    if not proc.stdout or not proc.stderr:
         raise RuntimeError(f"failed to run git command: {args}")
-    stdout = proc.stdout.read()
+    stdout = proc.stdout.read().decode("utf-8", "ignore")
+    stderr = proc.stderr.read().decode("utf-8", "ignore")
     proc.wait()
     if proc.returncode != 0 and not ignore_errors:
         raise RuntimeError(
             f"failed to run git command: {args} (return code {proc.returncode})"
         )
-    return
+    return stdout, stderr
 
 
 def __git_rev_parse(repo: pathlib.Path, rev: CommitHash | CommitRef) -> CommitHash:
@@ -315,11 +317,11 @@ class CloneRule(pydantic.BaseModel):
 
     kind: Literal["clone"] = "clone"
 
-    pattern: str
+    from_: str = pydantic.Field(..., alias="from")
     """Glob pattern matching files or directories to be cloned. Path relative
     to the source repository root."""
 
-    target: str
+    to: str
     """Target directory, relative to the target repository root. All cloned
     files will be placed **under** this directory."""
 
@@ -354,7 +356,7 @@ class CommitDef(pydantic.BaseModel):
     performing a 'rewrite migration' against a partially migrated repository.
     When the new repository is empty, this field is not at all useful."""
 
-    source: CommitHash | CommitRef
+    source: CommitHash | CommitRef | None
     """Source commit hash."""
 
     target: CommitHash | CommitRef
@@ -393,7 +395,7 @@ class MutationPlan(pydantic.BaseModel):
     target: str
     """Target repository path, may be either absolute or relative."""
 
-    chain: list[CommitChain]
+    chains: list[CommitChain]
     """Specify which commits would be copied to the target repo."""
 
     rules: list[MutationRule]
@@ -432,7 +434,7 @@ def __mutate_repo(
         if chain.begin is None:
             begin = None
         elif isinstance(chain.begin, CommitDef):
-            begin = _as_hash(chain.begin.source)
+            begin = _as_hash(chain.begin.source) if chain.begin.source else None
         else:
             begin = _as_hash(chain.begin)
         end = _as_hash(chain.end)
@@ -463,6 +465,8 @@ def __mutate_repo(
         )
         if n_commit is not None:
             plan_.write(f"{n_commit.hash[:8]} {n_commit.msg_subject}")
+        else:
+            plan_.write(f"    skip {src_commit.msg_subject}")
         parents[src_commit.hash] = n_hash
     plan_.close()
 
@@ -487,10 +491,24 @@ def __attach_commit(
     # locate target -- if parent is None, then this is the new orphaned root
     if dst_parent is not None:
         __git("checkout", dst_parent, repo=dst_path)
+        __git("checkout", "-b", "__DETACHED_BRANCH__", repo=dst_path)
+        __git("branch", "-D", dst_branch, repo=dst_path, ignore_errors=True)
+        __git("checkout", "-b", dst_branch, repo=dst_path)
+        __git("branch", "-D", "__DETACHED_BRANCH__", repo=dst_path, ignore_errors=True)
     else:
+        __git("checkout", "-b", "__DETACHED_BRANCH__", repo=dst_path)
         __git("branch", "-D", dst_branch, repo=dst_path, ignore_errors=True)
         __git("checkout", "--orphan", dst_branch, repo=dst_path)
-        __git("reset", "--hard", repo=dst_path)
+        __git("branch", "-D", "__DETACHED_BRANCH__", repo=dst_path, ignore_errors=True)
+
+    # clean target dir
+    for f in dst_path.iterdir():
+        if f.name == ".git":
+            continue
+        if f.is_dir():
+            shutil.rmtree(f, ignore_errors=True)
+        else:
+            f.unlink()
 
     # apply rules in order
     should_commit = True
@@ -509,11 +527,16 @@ def __attach_commit(
             __rule_exec_remove(rule, dst_path)
         pass
 
-    # commit if necessary
+    # try to commit
     if should_commit:
         __git("add", "-A", ".", repo=dst_path)
         message = (dst_commit.msg_subject + "\n\n" + dst_commit.msg_body).strip()
-        __git("commit", "-m", message, repo=dst_path)
+        commit_rs, _ = __git("commit", "-m", message, repo=dst_path, ignore_errors=True)
+        # there are cases where nothing gets committed at all
+        if "nothing to commit" in commit_rs:
+            should_commit = False
+
+    if should_commit:
         head = __git_get_head(dst_path)
         for tag in dst_commit.tags:
             __git("tag", "-a", tag, head, repo=dst_path)
@@ -653,20 +676,23 @@ def __rule_exec_recommit(rule: ReCommitRule, commit: GitCommit) -> GitCommit:
 def __rule_exec_clone(
     rule: CloneRule, source: pathlib.Path, target: pathlib.Path
 ) -> None:
-    for g in source.glob(__rule_make_path_relative(rule.pattern)):
+    from_ = __rule_make_path_relative(rule.from_)
+    to_ = __rule_make_path_relative(rule.to)
+    for g in source.glob(from_):
         fn = g.name
         if rule.rename is not None:
             fn = __rule_sub(rule.rename, rule.rename_sub, fn)
-        shutil.copytree(source / g, target / rule.target / fn)
+        shutil.copytree(source / g, target / to_ / fn)
     return
 
 
 def __rule_exec_remove(rule: RemoveRule, target: pathlib.Path) -> None:
-    removing = list[pathlib.Path]()
-    for r in target.glob(__rule_make_path_relative(rule.pattern)):
-        removing.append(r)
-    for r in removing:
-        shutil.rmtree(r, ignore_errors=True)
+    pattern_ = __rule_make_path_relative(rule.pattern)
+    for r in target.glob(pattern_):
+        if r.is_dir():
+            shutil.rmtree(r, ignore_errors=True)
+        else:
+            r.unlink()
     return
 
 
@@ -698,11 +724,13 @@ def git_rewrite(plan: MutationPlan) -> None:
     _src_head = __git_get_head(src_path)
     _dst_head = __git_get_head(dst_path)
 
-    __mutate_repo(plan.rules, plan.chain, src_path, dst_path)
+    __mutate_repo(plan.rules, plan.chains, src_path, dst_path)
     return
 
 
-app = typer.Typer()
+app = typer.Typer(
+    pretty_exceptions_enable=False,
+)
 
 
 @app.command()
