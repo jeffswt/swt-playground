@@ -74,8 +74,19 @@ def __parse_git_history(
 ) -> GitHistory:
     commits_raw = __get_raw_git_logs(repo, begin_hash, end_hash)
     commits = [__parse_raw_git_commit(i) for i in __split_raw_git_logs(commits_raw)]
+    # filter out commits that are not in the range
+    in_range = True if begin_hash is None else False
+    rs_commits = list[GitCommit]()
+    for commit in commits:
+        if commit.hash == begin_hash:
+            in_range = True
+            continue
+        if in_range:
+            rs_commits.append(commit)
+        if commit.hash == end_hash:
+            in_range = False
     return GitHistory(
-        commits=commits,
+        commits=rs_commits,
     )
 
 
@@ -522,11 +533,13 @@ def __attach_commit(
     # locate target -- if parent is None, then this is the new orphaned root
     if dst_parent is not None:
         __git("checkout", dst_parent, repo=dst_path)
+        __git("branch", "-D", "__DETACHED_BRANCH__", repo=dst_path, ignore_errors=True)
         __git("checkout", "-b", "__DETACHED_BRANCH__", repo=dst_path)
         __git("branch", "-D", dst_branch, repo=dst_path, ignore_errors=True)
         __git("checkout", "-b", dst_branch, repo=dst_path)
         __git("branch", "-D", "__DETACHED_BRANCH__", repo=dst_path, ignore_errors=True)
     else:
+        __git("branch", "-D", "__DETACHED_BRANCH__", repo=dst_path, ignore_errors=True)
         __git("checkout", "-b", "__DETACHED_BRANCH__", repo=dst_path)
         __git("branch", "-D", dst_branch, repo=dst_path, ignore_errors=True)
         __git("checkout", "--orphan", dst_branch, repo=dst_path)
@@ -723,14 +736,14 @@ def __rule_exec_clone(
         from_ = __rule_make_path_relative(from_raw_)
         for g in source.glob(from_):
             fn = g.name
-            str_path = '/' + str(g).replace('\\', '/').lstrip('/')
+            str_path = '/' + str(g.relative_to(source)).replace('\\', '/').lstrip('/')
             if exclude_ is not None and exclude_.match(str_path):
                 continue
 
             if rule.rename is not None:
                 fn = __rule_sub(rule.rename, rule.rename_sub, fn)
             # deal with overwrite
-            __a, __b = source / g, target / to_ / fn
+            __a, __b = g, target / to_ / fn
             if rule.overwrite:
                 if __b.exists():
                     __sh_remove(__b)
