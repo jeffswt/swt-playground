@@ -529,9 +529,20 @@ def __attach_commit(
 
     # try to commit
     if should_commit:
+        __git("config", "user.name", dst_commit.author_name, repo=dst_path)
+        __git("config", "user.email", dst_commit.author_email, repo=dst_path)
         __git("add", "-A", ".", repo=dst_path)
-        message = (dst_commit.msg_subject + "\n\n" + dst_commit.msg_body).strip()
-        commit_rs, _ = __git("commit", "-m", message, repo=dst_path, ignore_errors=True)
+        commit_rs, _ = __git(
+            "commit",
+            "--author",
+            f"{dst_commit.author_name} <{dst_commit.author_email}>",
+            "--date",
+            dst_commit.author_date.isoformat(),
+            "-m",
+            (dst_commit.msg_subject + "\n\n" + dst_commit.msg_body).strip(),
+            repo=dst_path,
+            ignore_errors=True,
+        )
         # there are cases where nothing gets committed at all
         if "nothing to commit" in commit_rs:
             should_commit = False
