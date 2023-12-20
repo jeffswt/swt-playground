@@ -1,4 +1,5 @@
 import datetime
+import glob
 import json
 import os
 import pathlib
@@ -347,7 +348,9 @@ class CloneRule(pydantic.BaseModel):
 
     from_: str | list[str] = pydantic.Field(..., alias="from")
     """Glob pattern(s) matching files or directories to be cloned. Path
-    relative to the source repository root."""
+    relative to whichever defined in `from_type`."""
+    from_type: Literal["source", "external", "target"] = "source"
+    """Specify the source of the `from` path. Defaults to source repo root."""
 
     exclude: str | None = None
     """Exclude these entries during copying. This is a regular expression
@@ -591,7 +594,7 @@ def __attach_commit(
     if should_commit:
         head = __git_get_head(dst_path)
         for tag in dst_commit.tags:
-            __git("tag", "-a", tag, head, repo=dst_path)
+            __git("tag", tag, head, repo=dst_path)
         return dst_commit, head
     return None, dst_parent
 
@@ -732,14 +735,32 @@ def __rule_exec_clone(
     exclude_ = re.compile(rule.exclude) if rule.exclude else None
     os.makedirs(target / to_, exist_ok=True)
 
-    for from_raw_ in (rule.from_ if isinstance(rule.from_, list) else [rule.from_]):
-        from_ = __rule_make_path_relative(from_raw_)
-        for g in source.glob(from_):
+    list_from_ = rule.from_ if isinstance(rule.from_, list) else [rule.from_]
+
+    def _resolve_from(from_: str) -> Iterable[tuple[pathlib.Path, str]]:
+        """Yields (path, readable_relative_path)[]."""
+        if rule.from_type == "source":
+            pattern = __rule_make_path_relative(from_)
+            for g in source.glob(pattern):
+                rg = "/" + str(g.relative_to(source)).replace("\\", "/").lstrip("/")
+                yield g, rg
+        elif rule.from_type == "external":
+            for child in glob.glob(from_):
+                g = pathlib.Path(child)
+                rg = child.replace("\\", "/")
+                yield g, rg
+        elif rule.from_type == "target":
+            pattern = __rule_make_path_relative(from_)
+            for g in target.glob(pattern):
+                rg = "/" + str(g.relative_to(target)).replace("\\", "/").lstrip("/")
+                yield g, rg
+        return
+
+    for from_ in list_from_:
+        for g, str_path in _resolve_from(from_):
             fn = g.name
-            str_path = '/' + str(g.relative_to(source)).replace('\\', '/').lstrip('/')
             if exclude_ is not None and exclude_.match(str_path):
                 continue
-
             if rule.rename is not None:
                 fn = __rule_sub(rule.rename, rule.rename_sub, fn)
             # deal with overwrite
@@ -756,7 +777,9 @@ def __rule_exec_clone(
 
 
 def __rule_exec_remove(rule: RemoveRule, target: pathlib.Path) -> None:
-    for pattern_raw_ in (rule.pattern if isinstance(rule.pattern, list) else [rule.pattern]):
+    for pattern_raw_ in (
+        rule.pattern if isinstance(rule.pattern, list) else [rule.pattern]
+    ):
         pattern_ = __rule_make_path_relative(pattern_raw_)
         for r in target.glob(pattern_):
             __sh_remove(r)
@@ -816,9 +839,9 @@ def rewrite(
     with open(plan, "r") as f:
         # load json with comments
         raw = f.read()
-        raw = raw.split('\n')
-        raw = [i for i in raw if not i.strip().startswith('//')]
-        raw = '\n'.join(raw)
+        raw = raw.split("\n")
+        raw = [i for i in raw if not i.strip().startswith("//")]
+        raw = "\n".join(raw)
         raw = json.loads(raw)
 
     plan_j = MutationPlan(**raw)

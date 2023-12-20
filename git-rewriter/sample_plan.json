@@ -33,6 +33,7 @@
         "/src/personal/new-feature-1",
         "/src/personal/new-feature-2"
       ],
+      "from_type": "source",
       "to": "/",
       "rename": "^new-",
       "rename_sub": "_"
