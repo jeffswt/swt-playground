@@ -6,7 +6,7 @@ import pathlib
 import re
 import shutil
 import subprocess
-from typing import Callable, Iterable, Literal
+from typing import Callable, Iterable, Literal, Optional
 
 import pydantic
 import tqdm
@@ -15,6 +15,8 @@ import typer
 
 __all__ = [
     # rules
+    "_Condition",
+    "ConditionRule",
     "FilterRule",
     "ReCommitRule",
     "CloneRule",
@@ -282,6 +284,28 @@ def __sh_remove(path: pathlib.Path) -> None:
 #   mutation plan
 
 
+class _Condition(pydantic.BaseModel):
+    not_: bool = pydantic.Field(False, alias="not")
+    and_: Optional["_Condition"] = pydantic.Field(None, alias="and")
+    or_: Optional["_Condition"] = pydantic.Field(None, alias="or")
+
+    if_exists: str | None = None
+    if_not_exists: str | None = None
+    pass
+
+
+_Condition.model_rebuild()
+
+
+class ConditionRule(pydantic.BaseModel):
+    """Set a condition for the next rule. If the condition is not met, the next
+    rule is skipped."""
+
+    kind: Literal["condition"] = "condition"
+    when: _Condition
+    pass
+
+
 class FilterRule(pydantic.BaseModel):
     """Cherry-pick commits with regular expressions or predicates. Those not
     matched by this rule will not be copied into the new repository. Any field
@@ -387,7 +411,7 @@ class RemoveRule(pydantic.BaseModel):
     pass
 
 
-MutationRule = FilterRule | ReCommitRule | CloneRule | RemoveRule
+MutationRule = ConditionRule | FilterRule | ReCommitRule | CloneRule | RemoveRule
 
 
 class CommitDef(pydantic.BaseModel):
@@ -558,8 +582,15 @@ def __attach_commit(
     should_commit = True
     dst_commit = src_commit
 
-    for rule in rules:
-        if rule.kind == "filter":
+    __i = 0
+    while __i < len(rules):
+        rule = rules[__i]
+        __i += 1
+        if rule.kind == "condition":
+            cond = __rule_exec_condition(rule, dst_path)
+            if not cond:
+                __i += 1
+        elif rule.kind == "filter":
             if not __rule_exec_filter(rule, dst_commit):
                 should_commit = False
                 break
@@ -597,6 +628,30 @@ def __attach_commit(
             __git("tag", tag, head, repo=dst_path)
         return dst_commit, head
     return None, dst_parent
+
+
+def __rule_exec_condition(rule: ConditionRule, target: pathlib.Path) -> bool:
+    return __rule_exec_condition_eval(rule.when, target)
+
+
+def __rule_exec_condition_eval(rule: _Condition, target: pathlib.Path) -> bool:
+    cond = True
+
+    if rule.if_exists is not None:
+        path = target / __rule_make_path_relative(rule.if_exists)
+        cond = cond and path.exists()
+
+    if rule.if_not_exists is not None:
+        path = target / __rule_make_path_relative(rule.if_not_exists)
+        cond = cond and not path.exists()
+
+    if rule.and_ is not None:
+        cond = cond and __rule_exec_condition_eval(rule.and_, target)
+    elif rule.or_ is not None:
+        cond = cond or __rule_exec_condition_eval(rule.or_, target)
+    if rule.not_:
+        cond = not cond
+    return cond
 
 
 def __rule_exec_filter(rule: FilterRule, commit: GitCommit) -> bool:
