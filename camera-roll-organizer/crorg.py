@@ -23,7 +23,12 @@ class MediaMetadata(pydantic.BaseModel):
 def _fetch_fs_metadata(path: pathlib.Path) -> MediaMetadata:
     ts_modify = datetime.datetime.fromtimestamp(os.path.getmtime(path))
     ts_create = datetime.datetime.fromtimestamp(os.path.getctime(path))
+    ts_us = (
+        ts_modify.microsecond if ts_modify.microsecond != 0 else ts_create.microsecond
+    )
     ts = min(ts_modify, ts_create)  # use whichever earlier
+    if ts.microsecond == 0:
+        ts = ts.replace(microsecond=ts_us)
 
     return MediaMetadata(
         date_taken=ts,
@@ -67,6 +72,8 @@ def _fetch_exif_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
     try:
         dt_s = dt_b.values
         dt_s = re.sub(r"(am|pm)$", "", dt_s)  # whoever created this crap
+        # we need to retain ascii chars only, for the sake of non-en apps
+        dt_s = "".join(c for c in dt_s if ord(c) < 128)
         dt = datetime.datetime.strptime(dt_s, "%Y:%m:%d %H:%M:%S")
     except Exception as err:
         raise RuntimeError(f"invalid timestamp '{dt_b}' in exif: {path}")
@@ -81,8 +88,50 @@ def _fetch_metadata(path: pathlib.Path) -> MediaMetadata:
     exif_exts = {".jpg", ".jpeg", ".bmp", ".png", ".heic", ".heif", ".mov"}
     metadata = _fetch_fs_metadata(path)
     if path.suffix.lower() in exif_exts:
-        metadata = _fetch_exif_metadata(path) or metadata
+        exif_metadata = _fetch_exif_metadata(path)
+        if exif_metadata is not None:
+            timestamp = exif_metadata.date_taken
+            if timestamp.microsecond == 0:
+                timestamp = timestamp.replace(microsecond=metadata.date_taken.microsecond)
+            metadata.date_taken = timestamp
+        pass
     return metadata
+
+
+def _fetch_datetime_from_name(name: str) -> Optional[datetime.datetime]:
+    def _parse_time(digits: List[int]) -> Optional[List[int]]:
+        separators = [" ", "-", "_", ".", ",", ":"]
+        separator_re = r"[" + "".join(separators) + r"]?"
+        datetime_re = [r"([0-9]{" + str(d) + r"})" for d in digits]
+        pattern = separator_re.join(datetime_re)
+        matches = re.findall(pattern, name)
+        if len(matches) == 0:
+            return None
+        match = matches[0]
+        return [int(m) for m in match]
+
+    with_ms = _parse_time([4, 2, 2, 2, 2, 2, 3])
+    if with_ms:
+        return datetime.datetime(
+            year=with_ms[0],
+            month=with_ms[1],
+            day=with_ms[2],
+            hour=with_ms[3],
+            minute=with_ms[4],
+            second=with_ms[5],
+            microsecond=with_ms[6] * 1000,
+        )
+    without_ms = _parse_time([4, 2, 2, 2, 2, 2])
+    if without_ms:
+        return datetime.datetime(
+            year=without_ms[0],
+            month=without_ms[1],
+            day=without_ms[2],
+            hour=without_ms[3],
+            minute=without_ms[4],
+            second=without_ms[5],
+        )
+    return None
 
 
 ###############################################################################
@@ -96,9 +145,27 @@ class FilenameComponents(pydantic.BaseModel):
     pass
 
 
+def _default_filename_components(path: pathlib.Path) -> FilenameComponents:
+    original_names = re.findall(r"\[([^\]]+)\]", path.name)
+    original_fn = original_names[0] if len(original_names) > 0 else path.name
+    metadata = _fetch_metadata(path)
+    timestamp = _fetch_datetime_from_name(path.name)
+    timestamp = timestamp if timestamp else metadata.date_taken
+    if timestamp.microsecond == 0:
+        timestamp = timestamp.replace(microsecond=metadata.date_taken.microsecond)
+    return FilenameComponents(
+        original_fn=original_fn,
+        date_taken=timestamp,
+        seq_num=0,
+    )
+
+
 class FilenameScheme(enum.Enum):
     original = "original"
     sortable = "sortable"
+    screenshot = "screenshot"
+    std = "std"
+    std_invert = "std_invert"
     pass
 
 
@@ -121,15 +188,12 @@ class FilenameSchemeDef(pydantic.BaseModel):
 
 def _fn_scheme_original() -> FilenameSchemeDef:
     def _pattern(path: pathlib.Path) -> Optional[FilenameComponents]:
-        metadata = _fetch_metadata(path)
-        fn_part = path.parts[-1]
-        seq_num = re.findall(r"[^\d](\d+)\.[^.]+$", fn_part)
+        result = _default_filename_components(path)
+        _fn_part = path.parts[-1]
+        seq_num = re.findall(r"[^\d](\d+)\.[^.]+$", _fn_part)
         seq_num = int(seq_num[0]) if len(seq_num) > 0 else 0
-        return FilenameComponents(
-            original_fn=path.name,
-            date_taken=metadata.date_taken,
-            seq_num=seq_num,
-        )
+        result.seq_num = seq_num
+        return result
 
     def _format(components: FilenameComponents) -> str:
         return components.original_fn
@@ -146,6 +210,7 @@ def _fn_scheme_original() -> FilenameSchemeDef:
 
 def _fn_scheme_sortable() -> FilenameSchemeDef:
     def _pattern(path: pathlib.Path) -> Optional[FilenameComponents]:
+        result = _default_filename_components(path)
         pattern = r"^(\d+) (\d{4})-(\d{2})-(\d{2}) \[([^\]]*?)\]\.(.*?)$"
         match = re.match(pattern, path.name)
         if not match:
@@ -158,11 +223,10 @@ def _fn_scheme_sortable() -> FilenameSchemeDef:
         original_fn = match.group(5)
         ext = match.group(6)
         # finish
-        return FilenameComponents(
-            original_fn=original_fn,
-            date_taken=datetime.datetime(year, month, day),
-            seq_num=seq_num,
-        )
+        result.original_fn = original_fn
+        result.date_taken = datetime.datetime(year, month, day)
+        result.seq_num = seq_num
+        return result
 
     def _format(components: FilenameComponents) -> str:
         ext = components.original_fn.split(".")[-1].lower()
@@ -178,9 +242,132 @@ def _fn_scheme_sortable() -> FilenameSchemeDef:
     )
 
 
+def _fn_scheme_screenshot() -> FilenameSchemeDef:
+    def _pattern(path: pathlib.Path) -> Optional[FilenameComponents]:
+        result = _default_filename_components(path)
+        pattern = (
+            r"^Screenshot from (\d{4})-(\d{2})-(\d{2}) \d{2}-\d{2}-\d{2}-\d{3}\.(.*?)$"
+        )
+        match = re.match(pattern, path.name)
+        if not match:
+            return None
+        # extract components
+        year = int(match.group(1))
+        month = int(match.group(2))
+        day = int(match.group(3))
+        hour = int(match.group(4))
+        minute = int(match.group(5))
+        second = int(match.group(6))
+        ext = match.group(4)
+        # finish
+        result.date_taken = datetime.datetime(year, month, day, hour, minute, second)
+        return result
+
+    def _format(components: FilenameComponents) -> str:
+        ext = components.original_fn.split(".")[-1].lower()
+        date = f"{components.date_taken:%Y-%m-%d}"
+        time = f"{components.date_taken:%H-%M-%S-%f}"[:-3]
+        return f"Screenshot from {date} {time}.{ext}"
+
+    _sample = "Screenshot from 2023-03-21 22-56-30-394.png"
+
+    return FilenameSchemeDef(
+        identifier=FilenameScheme.screenshot,
+        pattern=_pattern,
+        format=_format,
+        sample=_sample,
+    )
+
+
+def _fn_scheme_std() -> FilenameSchemeDef:
+    def _pattern(path: pathlib.Path) -> Optional[FilenameComponents]:
+        result = _default_filename_components(path)
+        pattern_fn = r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{3})_\[([^\]]+)\]\.(.*?)$"
+        pattern_no_fn = (
+            r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{3})\.(.*?)$"
+        )
+        match_fn = re.match(pattern_fn, path.name)
+        match_no_fn = re.match(pattern_no_fn, path.name)
+        if match_fn:
+            year = int(match_fn.group(1))
+            month = int(match_fn.group(2))
+            day = int(match_fn.group(3))
+            hour = int(match_fn.group(4))
+            minute = int(match_fn.group(5))
+            second = int(match_fn.group(6))
+            us = int(match_fn.group(7))
+            original_fn = match_fn.group(8)
+            ext = match_fn.group(9)
+        elif match_no_fn:
+            year = int(match_no_fn.group(1))
+            month = int(match_no_fn.group(2))
+            day = int(match_no_fn.group(3))
+            hour = int(match_no_fn.group(4))
+            minute = int(match_no_fn.group(5))
+            second = int(match_no_fn.group(6))
+            us = int(match_no_fn.group(7))
+            original_fn = path.name
+            ext = match_no_fn.group(8)
+        else:
+            return None
+        # finish
+        result.original_fn = original_fn
+        result.date_taken = datetime.datetime(year, month, day, hour, minute, second)
+        return result
+
+    def _format(components: FilenameComponents) -> str:
+        ext = components.original_fn.split(".")[-1].lower()
+        date = f"{components.date_taken:%Y-%m-%d}"
+        time = f"{components.date_taken:%H-%M-%S-%f}"[:-3]
+        # the original filename must take the format 'ABCD_E5678.EXT'
+        fn = components.original_fn
+        fn_rule_has_name = len(fn) > 0
+        fn_rule_extensions = len(fn.split(".")) == 2
+        fn_rule_format_pattern = r"^[_A-Z]{3,4}_E?\d{3,5}$"
+        fn_rule_format = bool(re.match(fn_rule_format_pattern, fn.split(".")[0]))
+        if fn_rule_has_name and fn_rule_extensions and fn_rule_format:
+            return f"{date}_{time}_[{fn}].{ext}"
+        else:
+            return f"{date}_{time}.{ext}"
+
+    _sample = "2023-03-21_22-56-30-394_[IMG_0123.PNG].png / 2023-03-21_22-56-30-394.png"
+
+    return FilenameSchemeDef(
+        identifier=FilenameScheme.std,
+        pattern=_pattern,
+        format=_format,
+        sample=_sample,
+    )
+
+
+def _fn_scheme_std_invert() -> FilenameSchemeDef:
+    fn_scheme_std = _fn_scheme_std()
+
+    def _pattern(path: pathlib.Path) -> Optional[FilenameComponents]:
+        result = fn_scheme_std.pattern(path)
+        if result is not None:
+            return None
+        return _default_filename_components(path)
+
+    def _format(components: FilenameComponents) -> str:
+        return components.original_fn
+
+    _sample = "any_filename_not_matched_by_[std].ext"
+
+    return FilenameSchemeDef(
+        identifier=FilenameScheme.std_invert,
+        pattern=_pattern,
+        format=_format,
+        sample=_sample,
+    )
+
+
 _fn_schemes = [
     _fn_scheme_original(),
     _fn_scheme_sortable(),
+    _fn_scheme_screenshot(),
+    _fn_scheme_std(),
+    _fn_scheme_std_invert(),
 ]
 
 
