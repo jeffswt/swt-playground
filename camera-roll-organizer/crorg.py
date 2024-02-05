@@ -11,6 +11,9 @@ import tqdm
 import typer
 
 
+app = typer.Typer()
+
+
 ###############################################################################
 #   metadata retrieval
 
@@ -88,11 +91,17 @@ def _fetch_metadata(path: pathlib.Path) -> MediaMetadata:
     exif_exts = {".jpg", ".jpeg", ".bmp", ".png", ".heic", ".heif", ".mov"}
     metadata = _fetch_fs_metadata(path)
     if path.suffix.lower() in exif_exts:
-        exif_metadata = _fetch_exif_metadata(path)
+        try:
+            exif_metadata = _fetch_exif_metadata(path)
+        except Exception as err:
+            typer.secho(f"warning: {err}", fg=typer.colors.YELLOW)
+            exif_metadata = None
         if exif_metadata is not None:
             timestamp = exif_metadata.date_taken
             if timestamp.microsecond == 0:
-                timestamp = timestamp.replace(microsecond=metadata.date_taken.microsecond)
+                timestamp = timestamp.replace(
+                    microsecond=metadata.date_taken.microsecond
+                )
             metadata.date_taken = timestamp
         pass
     return metadata
@@ -110,27 +119,33 @@ def _fetch_datetime_from_name(name: str) -> Optional[datetime.datetime]:
         match = matches[0]
         return [int(m) for m in match]
 
-    with_ms = _parse_time([4, 2, 2, 2, 2, 2, 3])
-    if with_ms:
-        return datetime.datetime(
-            year=with_ms[0],
-            month=with_ms[1],
-            day=with_ms[2],
-            hour=with_ms[3],
-            minute=with_ms[4],
-            second=with_ms[5],
-            microsecond=with_ms[6] * 1000,
-        )
-    without_ms = _parse_time([4, 2, 2, 2, 2, 2])
-    if without_ms:
-        return datetime.datetime(
-            year=without_ms[0],
-            month=without_ms[1],
-            day=without_ms[2],
-            hour=without_ms[3],
-            minute=without_ms[4],
-            second=without_ms[5],
-        )
+    try:
+        with_ms = _parse_time([4, 2, 2, 2, 2, 2, 3])
+        if with_ms:
+            return datetime.datetime(
+                year=with_ms[0],
+                month=with_ms[1],
+                day=with_ms[2],
+                hour=with_ms[3],
+                minute=with_ms[4],
+                second=with_ms[5],
+                microsecond=with_ms[6] * 1000,
+            )
+    except ValueError:
+        pass
+    try:
+        without_ms = _parse_time([4, 2, 2, 2, 2, 2])
+        if without_ms:
+            return datetime.datetime(
+                year=without_ms[0],
+                month=without_ms[1],
+                day=without_ms[2],
+                hour=without_ms[3],
+                minute=without_ms[4],
+                second=without_ms[5],
+            )
+    except ValueError:
+        pass
     return None
 
 
@@ -323,7 +338,7 @@ def _fn_scheme_std() -> FilenameSchemeDef:
         fn = components.original_fn
         fn_rule_has_name = len(fn) > 0
         fn_rule_extensions = len(fn.split(".")) == 2
-        fn_rule_format_pattern = r"^[_A-Z]{3,4}_E?\d{3,5}$"
+        fn_rule_format_pattern = r"^[_A-Z]{3,6}\d{3,5}$"
         fn_rule_format = bool(re.match(fn_rule_format_pattern, fn.split(".")[0]))
         if fn_rule_has_name and fn_rule_extensions and fn_rule_format:
             return f"{date}_{time}_[{fn}].{ext}"
@@ -372,15 +387,17 @@ _fn_schemes = [
 
 
 ###############################################################################
-#   shell interface
+#   rename utility: shell interface
 
 
-def _enumerate_files(path: pathlib.Path) -> Iterable[pathlib.Path]:
+def _enumerate_files(path: pathlib.Path, depth: int) -> Iterable[pathlib.Path]:
+    if depth < 0:
+        return
     if path.is_file():
         yield path
     elif path.is_dir():
         for subpath in path.iterdir():
-            yield from _enumerate_files(subpath)
+            yield from _enumerate_files(subpath, depth - 1)
     else:
         raise RuntimeError(f"invalid path: {path}")
     return
@@ -392,7 +409,39 @@ def _path_rel_to(path: pathlib.Path, base: pathlib.Path) -> str:
     return str(path.relative_to(base))
 
 
-def _convert(
+def _try_rename(src: pathlib.Path, dest: pathlib.Path) -> None:
+    # the first try shouldn't be hard
+    the_err: Optional[Exception] = None
+    try:
+        src.rename(dest)
+        return
+    except Exception as err:
+        the_err = err
+    # if the last component is a number, try to increment it
+    *fn_parts, ext = dest.name.split(".")
+    fn = ".".join(fn_parts)
+    num_l = re.findall(r"[^\d](\d+)$", fn)
+    if not num_l:
+        # we have no choice
+        raise the_err
+    # add until we can
+    num_s = num_l[0]
+    num_dec = 10 ** len(num_s)
+    num = int(num_s)
+    for i in range(num_dec):
+        new_id = (num + i) % num_dec
+        new_name = fn[: -len(num_s)] + str(new_id).rjust(len(num_s), "0")
+        dest = dest.parent / f"{new_name}.{ext}"
+        try:
+            src.rename(dest)
+            return
+        except Exception as err:
+            continue
+    # and that's finally out of choice
+    raise the_err
+
+
+def _rename(
     root_path: pathlib.Path,
     from_fns_id: FilenameScheme,
     to_fns_id: FilenameScheme,
@@ -404,7 +453,7 @@ def _convert(
 
     files: List[pathlib.Path] = []
     bar = tqdm.tqdm(desc="populating files")
-    for path in _enumerate_files(root_path):
+    for path in _enumerate_files(root_path, depth=65536):
         files.append(path)
         bar.update()
     bar.close()
@@ -429,12 +478,14 @@ def _convert(
         return
     bar = tqdm.tqdm(plans, desc="committing changes")
     for path, new_path in bar:
-        path.rename(new_path)
+        try:
+            _try_rename(path, new_path)
+        except FileExistsError:
+            bar.write(f"ERROR(FileExistsError): {_path_rel_to(path, root_path)} -> {new_path.name}")
+            continue
     bar.close()
     return
 
-
-app = typer.Typer()
 
 _fn_scheme_samples = "; ".join(
     f"'{s.identifier.value}': `{s.sample}`" for s in _fn_schemes
@@ -442,7 +493,7 @@ _fn_scheme_samples = "; ".join(
 
 
 @app.command()
-def convert(
+def rename(
     path: pathlib.Path = typer.Argument(
         help="Path to the file or directory to (recursively) convert.",
         exists=True,
@@ -462,7 +513,71 @@ def convert(
         help="Actually commit changes to disk.",
     ),
 ) -> None:
-    _convert(path, _from, _to, apply)
+    _rename(path, _from, _to, apply)
+    return
+
+
+###############################################################################
+#   grouping utility: shell interface
+
+
+def _group(
+    root_path: pathlib.Path,
+    apply: bool,
+) -> None:
+    files: List[pathlib.Path] = []
+    bar = tqdm.tqdm(desc="populating files")
+    for path in _enumerate_files(root_path, depth=1):
+        files.append(path)
+        bar.update()
+    bar.close()
+
+    # analyze filenames
+    scheme = _fn_scheme_std()
+    plans: List[Tuple[pathlib.Path, pathlib.Path]] = []
+    bar = tqdm.tqdm(files, desc="analyzing files")
+    for old_path in bar:
+        components = scheme.pattern(old_path)
+        if not components:
+            bar.write(f"  - skip {_path_rel_to(old_path, root_path)}", end="\r")
+            continue
+        # move to a new directory
+        date = components.date_taken
+        dir_name = f"{date.year:04d}{date.month:02d}"
+        if old_path.parent.name == dir_name:
+            bar.write(f"  - skip {_path_rel_to(old_path, root_path)}", end="\r")
+            continue
+        # format & plan
+        new_path = old_path.parent / dir_name / old_path.name
+        plans.append((old_path, new_path))
+        bar.write(
+            f"convert: {_path_rel_to(old_path, root_path)} -> {dir_name}/{new_path.name}"
+        )
+    bar.close()
+
+    if not apply:
+        return
+    bar = tqdm.tqdm(plans, desc="committing changes")
+    for path, new_path in bar:
+        if not new_path.parent.exists():
+            new_path.parent.mkdir(parents=True)
+        path.rename(new_path)
+    bar.close()
+    return
+
+
+@app.command()
+def group(
+    path: pathlib.Path = typer.Argument(
+        help="Path to the directory to group by filename (renamed with `std`).",
+        exists=True,
+    ),
+    apply: bool = typer.Option(
+        False,
+        help="Actually commit changes to disk.",
+    ),
+) -> None:
+    _group(path, apply)
     return
 
 
