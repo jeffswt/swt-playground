@@ -3,6 +3,7 @@ import enum
 import os
 import pathlib
 import re
+import subprocess
 from typing import Callable, Iterable, List, Optional, Tuple
 
 import exifread
@@ -481,7 +482,9 @@ def _rename(
         try:
             _try_rename(path, new_path)
         except FileExistsError:
-            bar.write(f"ERROR(FileExistsError): {_path_rel_to(path, root_path)} -> {new_path.name}")
+            bar.write(
+                f"ERROR(FileExistsError): {_path_rel_to(path, root_path)} -> {new_path.name}"
+            )
             continue
     bar.close()
     return
@@ -578,6 +581,53 @@ def group(
     ),
 ) -> None:
     _group(path, apply)
+    return
+
+
+###############################################################################
+#   backup utility: shell interface
+
+
+@app.command()
+def backup(
+    _from: pathlib.Path = typer.Option(
+        ...,
+        "--from",
+        help=f"The root of all directories to back up.",
+        exists=True,
+    ),
+    _to: pathlib.Path = typer.Option(
+        ...,
+        "--to",
+        help=f"Destination of backup, where all the `*.tar` files will be located.",
+        exists=True,
+    ),
+) -> None:
+    bak_dirs: List[Tuple[pathlib.Path, pathlib.Path]] = []  # bak_dir, tar_path
+    bar = tqdm.tqdm(desc="populating directories")
+    for path in _from.iterdir():
+        if not path.is_dir():
+            continue
+        tar_path = _to / f"{path.name}.tar"
+        if tar_path.exists():
+            continue
+        bak_dirs.append((path, tar_path))
+    bar.close()
+
+    bar = tqdm.tqdm(bak_dirs, desc="backing up")
+    for bak_dir, tar_path in bar:
+        tar_path.parent.mkdir(parents=True, exist_ok=True)
+        # spin 7-zip up. we need to make this support more commands later
+        exec_path = "C:/Program Files/7-Zip/7z.exe"
+        args = [exec_path, "a", "-ttar", tar_path.resolve(), "*"]
+        subprocess.run(
+            args,
+            cwd=bak_dir.resolve(),
+            shell=True,
+        )
+        bar.write(f"backup complete: {bak_dir.name} -> {tar_path.name}")
+    bar.close()
+
     return
 
 
