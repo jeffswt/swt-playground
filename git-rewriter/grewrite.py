@@ -21,6 +21,8 @@ __all__ = [
     "ReCommitRule",
     "CloneRule",
     "RemoveRule",
+    "_ModifyPattern",
+    "ModifyRule",
     "MutationRule",
     # plan
     "CommitHash",
@@ -411,7 +413,31 @@ class RemoveRule(pydantic.BaseModel):
     pass
 
 
-MutationRule = ConditionRule | FilterRule | ReCommitRule | CloneRule | RemoveRule
+class _ModifyPattern(pydantic.BaseModel):
+    find: str
+    replace: str
+    pass
+
+
+class ModifyRule(pydantic.BaseModel):
+    """Modify file contents in the target repository."""
+
+    kind: Literal["modify"] = "modify"
+
+    in_: str | list[str] = pydantic.Field(..., alias="in")
+    """Glob pattern(s) matching files to be modified. Path relative to target
+    repository root."""
+
+    patterns: list[_ModifyPattern]
+    """List of (regex, replacement) pairs. The regex is applied to the whole
+    file content."""
+
+    pass
+
+
+MutationRule = (
+    ConditionRule | FilterRule | ReCommitRule | CloneRule | RemoveRule | ModifyRule
+)
 
 
 class CommitDef(pydantic.BaseModel):
@@ -600,6 +626,8 @@ def __attach_commit(
             __rule_exec_clone(rule, src_path, dst_path)
         elif rule.kind == "remove":
             __rule_exec_remove(rule, dst_path)
+        elif rule.kind == "modify":
+            __rule_exec_modify(rule, dst_path)
         pass
 
     # try to commit
@@ -838,6 +866,31 @@ def __rule_exec_remove(rule: RemoveRule, target: pathlib.Path) -> None:
         pattern_ = __rule_make_path_relative(pattern_raw_)
         for r in target.glob(pattern_):
             __sh_remove(r)
+    return
+
+
+def __rule_exec_modify(rule: ModifyRule, target: pathlib.Path) -> None:
+    files = list[pathlib.Path]()
+    globs = rule.in_ if isinstance(rule.in_, list) else [rule.in_]
+    for glob in globs:
+        glob = __rule_make_path_relative(glob)
+        files.extend(target.glob(glob))
+
+    for file in files:
+        if not file.exists():
+            continue
+        if not file.is_file():
+            continue
+
+        with open(file, "r", encoding="utf-8") as f:
+            content = f.read()
+        new_content = content
+        for pattern in rule.patterns:
+            new_content = re.sub(pattern.find, pattern.replace, new_content)
+        if new_content == content:
+            continue
+        with open(file, "w", encoding="utf-8") as f:
+            f.write(new_content)
     return
 
 
