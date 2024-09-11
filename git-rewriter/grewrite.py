@@ -515,19 +515,20 @@ def __mutate_repo(
     # stores the mutation plan, in dfs order
     plan = list[tuple[GitCommit, CommitHash | None, CommitHash | None, CommitRef]]()
 
-    def _as_hash(ref: CommitRef | CommitHash) -> CommitHash:
+    def _as_hash(frm: Literal["src", "dst"], ref: CommitRef | CommitHash) -> CommitHash:
         if ref not in refs:
-            refs[ref] = __git_rev_parse(src_path, ref)
+            path = src_path if frm == "src" else dst_path
+            refs[ref] = __git_rev_parse(path, ref)
         return refs[ref]
 
     for chain in chains:
         if chain.begin is None:
             begin = None
         elif isinstance(chain.begin, CommitDef):
-            begin = _as_hash(chain.begin.source) if chain.begin.source else None
+            begin = _as_hash("src", chain.begin.source) if chain.begin.source else None
         else:
-            begin = _as_hash(chain.begin)
-        end = _as_hash(chain.end)
+            begin = _as_hash("src", chain.begin)
+        end = _as_hash("src", chain.end)
         history = __parse_git_history(src_path, begin, end)
         # insert commits
         for i, commit in enumerate(history.commits):
@@ -535,7 +536,7 @@ def __mutate_repo(
             src_parent_hash = None if i == 0 else history.commits[i - 1].hash
             dst_parent_hash = None
             if i == 0 and isinstance(chain.begin, CommitDef):
-                dst_parent_hash = _as_hash(chain.begin.target)
+                dst_parent_hash = _as_hash("dst", chain.begin.target)
             dst_branch = chain.name
             plan.append((src_commit, src_parent_hash, dst_parent_hash, dst_branch))
         pass
