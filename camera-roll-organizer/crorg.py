@@ -8,6 +8,7 @@ from typing import Callable, Iterable, List, Optional, Tuple
 
 import exifread
 import pydantic
+import mediameta
 import tqdm
 import typer
 
@@ -62,12 +63,16 @@ def _monkey_patch_exifread():
 
 
 def _fetch_exif_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
+    if path.suffix.lower() not in {".jpg", ".jpeg", ".bmp", ".png", ".heic", ".heif"}:
+        return None
     # attempt to read exif from file
     try:
         with open(path, "rb") as f:
             tags = exifread.process_file(f, debug=True)
     except Exception as err:
-        raise RuntimeError(f"cannot load exif from file: {path}")
+        # raise RuntimeError(f"cannot load exif from file: {path}")
+        print(f"cannot load exif from file: {path}, reason: {err}")
+        return None
     # extract timestamp
     dt_b = tags.get("EXIF DateTimeOriginal", None)
     if not dt_b:
@@ -80,7 +85,9 @@ def _fetch_exif_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
         dt_s = "".join(c for c in dt_s if ord(c) < 128)
         dt = datetime.datetime.strptime(dt_s, "%Y:%m:%d %H:%M:%S")
     except Exception as err:
-        raise RuntimeError(f"invalid timestamp '{dt_b}' in exif: {path}")
+        # raise RuntimeError(f"invalid timestamp '{dt_b}' in exif: {path}")
+        print(f"invalid timestamp '{dt_b}' in exif: {path}, reason: {err}")
+        return None
 
     # finish
     return MediaMetadata(
@@ -88,26 +95,40 @@ def _fetch_exif_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
     )
 
 
+def _fetch_mov_metadata(path: pathlib.Path) -> Optional[MediaMetadata]:
+    if path.suffix.lower() not in {".mov"}:
+        return None
+    try:
+        tags = mediameta.VideoMetadata(path)
+    except mediameta.UnsupportedMediaFile:
+        return None
+
+    ts: str | None = tags["com.apple.quicktime.creationdate"]
+    if ts is None:
+        return None
+    dt = datetime.datetime.fromisoformat(ts)
+
+    return MediaMetadata(
+        date_taken=dt,
+    )
+
+
 def _fetch_metadata(path: pathlib.Path) -> MediaMetadata:
-    exif_exts = {".jpg", ".jpeg", ".bmp", ".png", ".heic", ".heif", ".mov"}
-    metadata = _fetch_fs_metadata(path)
-    if path.suffix.lower() in exif_exts:
-        try:
-            exif_metadata = _fetch_exif_metadata(path)
-        except Exception as err:
-            typer.secho(f"warning: {err}", fg=typer.colors.YELLOW)
-            exif_metadata = None
-        if exif_metadata is not None:
-            timestamp = exif_metadata.date_taken
-            if timestamp.microsecond == 0:
-                timestamp = timestamp.replace(
-                    microsecond=metadata.date_taken.microsecond
-                )
-            metadata.date_taken = timestamp
-        pass
-    return metadata
+    meta: Optional[MediaMetadata] = None
+    meta = meta or _fetch_exif_metadata(path)
+    meta = meta or _fetch_mov_metadata(path)
+    fallback_meta = _fetch_fs_metadata(path)
+    if meta is not None:
+        ts = meta.date_taken
+        if ts.microsecond == 0:
+            ts = ts.replace(microsecond=fallback_meta.date_taken.microsecond)
+        ts = ts.replace(tzinfo=None)
+        meta.date_taken = ts
+    else:
+        meta = fallback_meta
+    return meta
 
-
+ 
 def _fetch_datetime_from_name(name: str) -> Optional[datetime.datetime]:
     def _parse_time(digits: List[int]) -> Optional[List[int]]:
         separators = [" ", "-", "_", ".", ",", ":"]
@@ -165,10 +186,14 @@ def _default_filename_components(path: pathlib.Path) -> FilenameComponents:
     original_names = re.findall(r"\[([^\]]+)\]", path.name)
     original_fn = original_names[0] if len(original_names) > 0 else path.name
     metadata = _fetch_metadata(path)
-    timestamp = _fetch_datetime_from_name(path.name)
-    timestamp = timestamp if timestamp else metadata.date_taken
-    if timestamp.microsecond == 0:
-        timestamp = timestamp.replace(microsecond=metadata.date_taken.microsecond)
+    metadata_dt_s = metadata.date_taken.replace(microsecond=0)
+    metadata_dt_ms = metadata.date_taken.microsecond
+    filename_dt = _fetch_datetime_from_name(path.name)
+    filename_dt_s = filename_dt.replace(microsecond=0) if filename_dt else None
+    filename_dt_ms = filename_dt.microsecond if filename_dt else None
+    timestamp_s = min(metadata_dt_s, filename_dt_s) if filename_dt_s else metadata_dt_s
+    timestamp_ms = filename_dt_ms if filename_dt_ms else metadata_dt_ms  # incl. 0
+    timestamp = timestamp_s.replace(microsecond=timestamp_ms)
     return FilenameComponents(
         original_fn=original_fn,
         date_taken=timestamp,
@@ -298,6 +323,7 @@ def _fn_scheme_screenshot() -> FilenameSchemeDef:
 def _fn_scheme_std() -> FilenameSchemeDef:
     def _pattern(path: pathlib.Path) -> Optional[FilenameComponents]:
         result = _default_filename_components(path)
+        return result
         pattern_fn = r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{3})_\[([^\]]+)\]\.(.*?)$"
         pattern_no_fn = (
             r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{3})\.(.*?)$"
@@ -311,7 +337,7 @@ def _fn_scheme_std() -> FilenameSchemeDef:
             hour = int(match_fn.group(4))
             minute = int(match_fn.group(5))
             second = int(match_fn.group(6))
-            us = int(match_fn.group(7))
+            us = int(match_fn.group(7)) * 1000
             original_fn = match_fn.group(8)
             ext = match_fn.group(9)
         elif match_no_fn:
@@ -321,14 +347,14 @@ def _fn_scheme_std() -> FilenameSchemeDef:
             hour = int(match_no_fn.group(4))
             minute = int(match_no_fn.group(5))
             second = int(match_no_fn.group(6))
-            us = int(match_no_fn.group(7))
+            us = int(match_no_fn.group(7)) * 1000
             original_fn = path.name
             ext = match_no_fn.group(8)
         else:
             return None
         # finish
         result.original_fn = original_fn
-        result.date_taken = datetime.datetime(year, month, day, hour, minute, second)
+        result.date_taken = datetime.datetime(year, month, day, hour, minute, second, us)
         return result
 
     def _format(components: FilenameComponents) -> str:
@@ -471,8 +497,11 @@ def _rename(
         new_fn = to_fns.format(components)
         new_path = old_path.parent / new_fn
         # plan
-        plans.append((old_path, new_path))
-        bar.write(f"convert: {_path_rel_to(old_path, root_path)} -> {new_path.name}")
+        if old_path != new_path:
+            plans.append((old_path, new_path))
+            bar.write(f"convert: {_path_rel_to(old_path, root_path)} -> {new_path.name}")
+        else:
+            bar.write(f"skip: {_path_rel_to(old_path, root_path)}", end="\r")
     bar.close()
 
     if not apply:

@@ -9,11 +9,14 @@
     "filetypes"
   ],
   "words": [
+    "creationdate",
     "exif",
     "exifread",
+    "mediameta",
     "piexif",
     "pydantic",
     "pyheif",
+    "quicktime",
     "tqdm",
     "typer"
   ]

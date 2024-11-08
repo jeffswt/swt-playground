@@ -1,4 +1,5 @@
 exifread ~= 3.0.0
+mediameta ~= 0.1.0
 pydantic ~= 2.5.2
 tqdm ~= 4.66.1
 typer ~= 0.9.0
