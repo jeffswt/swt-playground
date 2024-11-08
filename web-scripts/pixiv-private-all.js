@@ -15,7 +15,7 @@ async function setFirstFollowingToPrivate() {
     throw new Error(`you must be at the 'following' page`);
   // define element signatures
   const itemListSig = "sc-1y4z60g-4 cqwgCG";
-  const itemSig = "sc-1y4z60g-5 eUwTkI";
+  const itemSig = "sc-1y4z60g-5 iVLXCu";
   const menuButtonSig = "sc-125tkm8-0 sc-125tkm8-3 ka-dhPl eZXKAK";
   const menuItemSig = "sc-1o6692m-0 bhnRuh";
   // find the element
