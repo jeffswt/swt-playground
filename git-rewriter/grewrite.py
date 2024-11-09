@@ -140,7 +140,7 @@ def __get_raw_git_logs(
         "message %B\n"
         "end-of-commit %H\n\n"
     )
-    range = f"{begin_hash}..{end_hash}" if begin_hash else end_hash
+    _range = f"{begin_hash}..{end_hash}" if begin_hash else end_hash
     proc = subprocess.Popen(
         args=["git", "log", end_hash, fmt_rule, "--reverse"],
         cwd=repo,
