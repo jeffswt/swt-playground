@@ -19,10 +19,12 @@
     "indexeddb",
     "leveldb",
     "mediameta",
+    "onefile",
     "piexif",
     "postmanout",
     "pydantic",
     "pyheif",
+    "pyinstaller",
     "quicktime",
     "tqdm",
     "typer"

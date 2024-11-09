@@ -49,3 +49,15 @@ We also provide global variables and collection variables in the output, so that
 ```
 
 There are other fields such as `body` which are not covered by this script, which are commented in the source files and can be easily retrieved.
+
+## Build
+
+```powershell
+conda create -y -n postmanout python=3.10
+conda activate postmanout
+python -m pip install pyinstaller
+python ./postmanout.py
+$pythonPath = $(Get-Command python).Source
+$snappyPath = "$(Resolve-Path "$pythonPath/../Lib/site-packages/python_snappy.libs/")"
+pyinstaller --onefile postmanout.py --add-data "${snappyPath}:./"
+```

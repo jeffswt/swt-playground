@@ -174,7 +174,7 @@ def take_history_record(record: Dict[str, Any]) -> HistoryRecord:
     if isinstance(timestamp, (int, float)):
         timestamp = datetime.datetime.fromtimestamp(timestamp / 1000)
     else:
-        timestamp = datetime.datetime.fromisoformat(timestamp)
+        timestamp = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
     # unify to UTC
     timestamp = timestamp.astimezone().astimezone(datetime.timezone.utc)
     # timestamp = timestamp.replace(tzinfo=None)
